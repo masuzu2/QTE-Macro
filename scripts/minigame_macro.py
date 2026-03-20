@@ -68,181 +68,241 @@ class Cap:
 
 
 # ═══════════════════════════════════════════════════
-# Auto Character Templates - สร้างเองจาก font ไม่ต้อง setup
+# Auto Character Recognition - Zero Setup
+# สร้าง template หลาย font + หลาย weight + หลาย style
+# แล้ว match ด้วยหลาย preprocessing pipeline + voting
 # ═══════════════════════════════════════════════════
-class AutoTemplates:
-    """สร้าง template ตัวอักษร A-Z 0-9 อัตโนมัติ หลายขนาด หลาย font"""
+class CharEngine:
+    """ระบบจับตัวอักษรแบบไม่ต้อง setup"""
 
     def __init__(self):
-        self.templates = {}  # char -> list of (gray_image)
+        self.templates = {}   # char -> list of gray numpy arrays
+        self.target_h = 48    # resize ทุก template ให้สูงเท่ากัน
         self._generate()
 
     def _generate(self):
         chars = "qweasdzxcrtyfghvbn1234567890"
-        sizes = [28, 36, 44, 52, 64, 80]
-
-        # หา font ที่มีในเครื่อง
         fonts = self._find_fonts()
+        sizes = [40, 56, 72]
 
         for ch in chars:
             self.templates[ch] = []
-            for font in fonts:
+            for fpath in fonts:
                 for sz in sizes:
-                    img = self._render_char(ch.upper(), font, sz)
-                    if img is not None:
-                        self.templates[ch].append(img)
-                    # ตัวเล็กด้วย
-                    img2 = self._render_char(ch.lower(), font, sz)
-                    if img2 is not None:
-                        self.templates[ch].append(img2)
+                    for bold in [False, True]:
+                        for case in [ch.upper(), ch.lower()]:
+                            img = self._render(case, fpath, sz, bold)
+                            if img is not None:
+                                # Normalize ให้สูงเท่ากัน
+                                h, w = img.shape[:2]
+                                nw = max(int(w * (self.target_h / h)), 3)
+                                norm = cv2.resize(img, (nw, self.target_h))
+                                self.templates[ch].append(norm)
 
     def _find_fonts(self):
-        """หา font ที่ใช้ได้"""
         fonts = []
-
-        # ลอง font ยอดนิยมในเกม
-        font_names = [
-            "arial.ttf", "arialbd.ttf", "calibri.ttf", "calibrib.ttf",
-            "segoeui.ttf", "segoeuib.ttf", "consola.ttf", "consolab.ttf",
-            "tahoma.ttf", "tahomabd.ttf", "verdana.ttf", "verdanab.ttf",
-            "impact.ttf", "trebuc.ttf", "trebucbd.ttf",
-            "comic.ttf", "comicbd.ttf", "cour.ttf", "courbd.ttf",
+        names = [
+            # Bold fonts (เกมส่วนใหญ่ใช้ font หนา)
+            "arialbd.ttf", "calibrib.ttf", "segoeuib.ttf", "consolab.ttf",
+            "tahomabd.ttf", "verdanab.ttf", "trebucbd.ttf", "impact.ttf",
+            # Regular fonts
+            "arial.ttf", "segoeui.ttf", "consola.ttf", "tahoma.ttf",
+            "verdana.ttf", "calibri.ttf", "cour.ttf", "courbd.ttf",
         ]
-
-        # Windows font paths
-        win_paths = [
-            os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts"),
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Fonts"),
+        win_dir = os.environ.get("WINDIR", "C:\\Windows")
+        local = os.environ.get("LOCALAPPDATA", "")
+        paths = [
+            os.path.join(win_dir, "Fonts"),
+            os.path.join(local, "Microsoft", "Windows", "Fonts") if local else "",
         ]
-
-        for fname in font_names:
-            for fdir in win_paths:
-                fpath = os.path.join(fdir, fname)
-                if os.path.exists(fpath):
-                    fonts.append(fpath)
-                    break
-
-        # Fallback: PIL default font
+        for n in names:
+            for p in paths:
+                if not p: continue
+                fp = os.path.join(p, n)
+                if os.path.exists(fp):
+                    fonts.append(fp); break
         if not fonts:
             fonts.append(None)
+        return fonts[:8]
 
-        return fonts[:6]  # max 6 fonts
-
-    def _render_char(self, char, font_path, size):
-        """render 1 ตัวอักษรเป็น grayscale image"""
+    def _render(self, char, font_path, size, bold=False):
+        """Render 1 ตัวอักษร → crop → binary"""
         try:
-            pad = 4
-            img = Image.new("L", (size + pad*2, size + pad*2), 0)
+            canvas_sz = size + 20
+            img = Image.new("L", (canvas_sz, canvas_sz), 0)
             draw = ImageDraw.Draw(img)
-
-            if font_path:
-                font = ImageFont.truetype(font_path, size)
-            else:
-                font = ImageFont.load_default()
-
-            # วาดตัวอักษรขาวบนดำ
+            font = ImageFont.truetype(font_path, size) if font_path else ImageFont.load_default()
             bbox = draw.textbbox((0, 0), char, font=font)
-            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            x = (img.width - tw) // 2 - bbox[0]
-            y = (img.height - th) // 2 - bbox[1]
+            tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+            x = (canvas_sz - tw)//2 - bbox[0]
+            y = (canvas_sz - th)//2 - bbox[1]
             draw.text((x, y), char, fill=255, font=font)
 
-            # Crop ให้พอดีตัวอักษร
             arr = np.array(img)
-            coords = np.argwhere(arr > 50)
-            if len(coords) < 10:
-                return None
+
+            # Bold = dilate ให้หนาขึ้น
+            if bold:
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+                arr = cv2.dilate(arr, kernel, iterations=1)
+
+            # Crop tight
+            coords = np.argwhere(arr > 40)
+            if len(coords) < 8: return None
             y0, x0 = coords.min(axis=0)
             y1, x1 = coords.max(axis=0)
-            cropped = arr[max(0,y0-2):y1+3, max(0,x0-2):x1+3]
+            cropped = arr[max(0,y0-1):y1+2, max(0,x0-1):x1+2]
+            if cropped.shape[0] < 4 or cropped.shape[1] < 4: return None
 
-            if cropped.shape[0] < 5 or cropped.shape[1] < 5:
-                return None
-
-            return cropped
-
+            # Binary
+            _, binary = cv2.threshold(cropped, 80, 255, cv2.THRESH_BINARY)
+            return binary
         except:
             return None
 
-    def match_slot(self, gray_slot, threshold=0.55):
-        """match 1 ช่องกับทุก template, return (char, confidence)"""
-        # Preprocess slot
-        slot = self._preprocess(gray_slot)
-        if slot is None:
-            return None, 0
+    # ──────────────────────────────────────
+    # Matching
+    # ──────────────────────────────────────
 
-        best_char, best_val = None, 0
-        sh, sw = slot.shape[:2]
-
-        for char, tmpls in self.templates.items():
-            for tmpl in tmpls:
-                th, tw = tmpl.shape[:2]
-                # Skip ถ้าขนาดต่างกันมาก
-                if tw > sw or th > sh:
-                    continue
-                if tw < sw * 0.2 or th < sh * 0.2:
-                    continue
-
-                # Resize template ให้พอดี slot
-                scale_w = sw / tw
-                scale_h = sh / th
-                scale = min(scale_w, scale_h) * 0.85
-                ntw, nth = int(tw * scale), int(th * scale)
-                if ntw < 3 or nth < 3 or ntw > sw or nth > sh:
-                    continue
-
-                resized = cv2.resize(tmpl, (ntw, nth))
-                res = cv2.matchTemplate(slot, resized, cv2.TM_CCOEFF_NORMED)
-                _, mx, _, _ = cv2.minMaxLoc(res)
-
-                if mx > threshold and mx > best_val:
-                    best_char, best_val = char, mx
-                    if mx > 0.85:
-                        return best_char, best_val
-
-        return best_char, best_val
-
-    def _preprocess(self, gray):
-        """ทำให้ตัวอักษรเป็น ขาวบนดำ ชัดที่สุด"""
-        if gray is None or gray.size == 0:
-            return None
-
-        # ขยาย
-        h, w = gray.shape[:2]
-        if w < 20 or h < 20:
-            scale = max(40/w, 40/h, 1)
-            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-
-        # ลองทั้ง 2 แบบ: ปกติ + invert เลือกแบบที่ตัวอักษรเป็นสีขาว
-        _, thresh1 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        thresh2 = cv2.bitwise_not(thresh1)
-
-        # เลือกแบบที่มี content น้อยกว่า (ตัวอักษรควรเป็นส่วนน้อย)
-        w1 = np.count_nonzero(thresh1)
-        w2 = np.count_nonzero(thresh2)
-
-        return thresh1 if w1 < w2 else thresh2
-
-    def match_lane(self, gray_full, num_keys, threshold=0.55):
-        """match ทั้งแถว return list of (char, confidence)"""
+    def match_lane(self, gray_full, num_keys, threshold=0.50):
+        """อ่านทั้งแถว → list of (char, confidence)"""
         h, w = gray_full.shape[:2]
+
+        # ลองหลาย preprocessing แล้ว vote
+        prepped = self._multi_preprocess(gray_full)
+        all_results = []
+
+        for slot_img in prepped:
+            results = self._match_slots(slot_img, num_keys, threshold)
+            all_results.append(results)
+
+        # Vote: เอาผลที่ตรงกันมากที่สุดจากทุก pipeline
+        final = []
+        for i in range(num_keys):
+            from collections import Counter
+            votes = Counter()
+            best_conf = 0
+            for res in all_results:
+                if i < len(res) and res[i][0] is not None:
+                    votes[res[i][0]] += 1
+                    best_conf = max(best_conf, res[i][1])
+            if votes:
+                winner = votes.most_common(1)[0][0]
+                final.append((winner, best_conf))
+            else:
+                final.append((None, 0))
+
+        return final
+
+    def _match_slots(self, gray, num_keys, threshold):
+        """แบ่ง lane เป็น N ช่อง แล้ว match ทีละช่อง"""
+        h, w = gray.shape[:2]
         slot_w = w // num_keys
         results = []
 
         for i in range(num_keys):
             x1 = i * slot_w
             x2 = min(x1 + slot_w, w)
-            pad = slot_w // 8
-            rx1 = max(0, x1 - pad)
-            rx2 = min(w, x2 + pad)
-            roi = gray_full[:, rx1:rx2]
-
+            # Padding เล็กน้อย
+            pad = max(slot_w // 10, 2)
+            rx1, rx2 = max(0, x1-pad), min(w, x2+pad)
+            roi = gray[:, rx1:rx2]
             if roi.shape[1] < 5:
-                results.append((None, 0))
-                continue
+                results.append((None, 0)); continue
 
-            char, conf = self.match_slot(roi, threshold)
+            # Crop ให้แน่นกับตัวอักษร
+            roi = self._tight_crop(roi)
+            if roi is None:
+                results.append((None, 0)); continue
+
+            char, conf = self._match_one(roi, threshold)
             results.append((char, conf))
+
+        return results
+
+    def _tight_crop(self, binary):
+        """Crop ให้แน่นกับ content (ตัวอักษร)"""
+        coords = np.argwhere(binary > 127)
+        if len(coords) < 8: return None
+        y0, x0 = coords.min(axis=0)
+        y1, x1 = coords.max(axis=0)
+        cropped = binary[max(0,y0-2):y1+3, max(0,x0-2):x1+3]
+        if cropped.shape[0] < 4 or cropped.shape[1] < 4: return None
+        return cropped
+
+    def _match_one(self, roi, threshold):
+        """Match 1 ROI กับทุก template"""
+        # Resize ROI ให้สูง = target_h
+        rh, rw = roi.shape[:2]
+        nw = max(int(rw * (self.target_h / rh)), 3)
+        roi_norm = cv2.resize(roi, (nw, self.target_h))
+
+        best_char, best_val = None, 0
+
+        for char, tmpls in self.templates.items():
+            for tmpl in tmpls:
+                th, tw = tmpl.shape[:2]
+                # Template ต้องเล็กกว่าหรือเท่ากับ ROI
+                if tw > roi_norm.shape[1] + 4 or th > roi_norm.shape[0] + 4:
+                    continue
+
+                # ถ้า template เล็กกว่ามาก ข้าม
+                if tw < roi_norm.shape[1] * 0.3:
+                    continue
+
+                # Pad ROI ถ้า template ใกล้เคียงขนาด
+                padded = roi_norm
+                if tw > roi_norm.shape[1] or th > roi_norm.shape[0]:
+                    px = max(0, (tw - roi_norm.shape[1]) // 2 + 2)
+                    py = max(0, (th - roi_norm.shape[0]) // 2 + 2)
+                    padded = cv2.copyMakeBorder(roi_norm, py, py, px, px, cv2.BORDER_CONSTANT, value=0)
+
+                try:
+                    res = cv2.matchTemplate(padded, tmpl, cv2.TM_CCOEFF_NORMED)
+                    _, mx, _, _ = cv2.minMaxLoc(res)
+                    if mx > threshold and mx > best_val:
+                        best_char, best_val = char, mx
+                        if mx > 0.80: return best_char, best_val
+                except:
+                    continue
+
+        return best_char, best_val
+
+    # ──────────────────────────────────────
+    # Multi-Preprocessing: ลองหลายวิธี
+    # ──────────────────────────────────────
+
+    def _multi_preprocess(self, gray):
+        """สร้างหลาย version ของ lane image ด้วยวิธี threshold ต่างกัน"""
+        results = []
+        h, w = gray.shape[:2]
+
+        # Upscale ถ้าเล็ก
+        if h < 40:
+            scale = max(50 / h, 1)
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+        # 1. Otsu (auto threshold)
+        _, t1 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        t1_inv = cv2.bitwise_not(t1)
+        # เลือกแบบที่ตัวอักษร = ขาว (content น้อยกว่า)
+        results.append(t1 if np.count_nonzero(t1) < np.count_nonzero(t1_inv) else t1_inv)
+
+        # 2. Adaptive threshold
+        t2 = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 5)
+        t2_inv = cv2.bitwise_not(t2)
+        results.append(t2 if np.count_nonzero(t2) < np.count_nonzero(t2_inv) else t2_inv)
+
+        # 3. High contrast + fixed threshold
+        contrast = cv2.convertScaleAbs(gray, alpha=2.5, beta=-80)
+        _, t3 = cv2.threshold(contrast, 127, 255, cv2.THRESH_BINARY)
+        t3_inv = cv2.bitwise_not(t3)
+        results.append(t3 if np.count_nonzero(t3) < np.count_nonzero(t3_inv) else t3_inv)
+
+        # 4. Edge-based (Canny + dilate)
+        edges = cv2.Canny(gray, 50, 150)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        t4 = cv2.dilate(edges, kernel, iterations=1)
+        results.append(t4)
 
         return results
 
@@ -368,7 +428,7 @@ class App:
         self.key_history = []
 
         self.cap = Cap()
-        self.engine = AutoTemplates()
+        self.engine = CharEngine()
         self.lane = LaneDetect()
 
         self.v_num = tk.IntVar(value=self.cfg.get("num_keys", 6))
