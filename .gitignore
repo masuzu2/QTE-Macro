@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+dist/
+build/
+*.spec
+*.egg-info/
+.venv/
+venv/
+templates/*.png
+macro_config.json

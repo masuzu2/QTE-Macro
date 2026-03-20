@@ -1,0 +1,61 @@
+name: Build QTE Macro
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'requirements.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build EXE
+        run: |
+          pyinstaller --noconfirm --onefile --windowed `
+            --name "QTE_Macro" `
+            --hidden-import=pynput `
+            --hidden-import=pynput.keyboard `
+            --hidden-import=pynput.keyboard._win32 `
+            --hidden-import=pynput.mouse `
+            --hidden-import=pynput.mouse._win32 `
+            --hidden-import=PIL `
+            --hidden-import=PIL.Image `
+            --hidden-import=PIL.ImageTk `
+            --hidden-import=PIL.ImageDraw `
+            --hidden-import=numpy `
+            --hidden-import=cv2 `
+            --hidden-import=pytesseract `
+            --hidden-import=mss `
+            --collect-all mss `
+            scripts/minigame_macro.py
+        shell: pwsh
+
+      - name: Package
+        run: |
+          mkdir dist\QTE_Macro
+          copy dist\QTE_Macro.exe dist\QTE_Macro\
+          mkdir dist\QTE_Macro\templates
+          copy test_qte_game.html dist\QTE_Macro\
+          Compress-Archive -Path "dist\QTE_Macro\*" -DestinationPath QTE_Macro.zip -Force
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QTE_Macro
+          path: QTE_Macro.zip
