@@ -41,7 +41,6 @@ jobs:
             --hidden-import=PIL.ImageDraw `
             --hidden-import=numpy `
             --hidden-import=cv2 `
-            --hidden-import=pytesseract `
             --hidden-import=mss `
             --collect-all mss `
             scripts/minigame_macro.py

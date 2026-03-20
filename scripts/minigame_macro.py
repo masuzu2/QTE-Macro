@@ -100,16 +100,17 @@ class ScreenCapture:
 class TemplateEngine:
     def __init__(self, template_dir):
         self.dir = template_dir
-        self.templates = {}  # key -> list of gray images (หลาย variant ต่อ key)
+        self.templates = {}   # key -> list of gray images
+        self.scaled = {}      # key -> list of (scale, gray) pre-computed
         os.makedirs(template_dir, exist_ok=True)
         self.load()
 
     def load(self):
         self.templates.clear()
+        self.scaled.clear()
         if not os.path.isdir(self.dir): return
         for f in os.listdir(self.dir):
             if not f.lower().endswith(".png"): continue
-            # รองรับ: q.png, q_2.png, q_3.png (หลาย variant)
             name = f.rsplit(".",1)[0].lower()
             key = name.split("_")[0]
             if len(key) != 1: continue
@@ -118,49 +119,50 @@ class TemplateEngine:
                 if key not in self.templates:
                     self.templates[key] = []
                 self.templates[key].append(img)
+        self._precompute_scales()
 
-    def detect(self, frame_bgr, threshold=0.75):
-        """ตรวจจับ key จาก frame, return (key, confidence) หรือ (None, 0)"""
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        best_key, best_val = None, 0
-
+    def _precompute_scales(self):
+        """Pre-compute scaled versions ทุก template ทุก scale ล่วงหน้า → loop เร็วขึ้น 5x"""
+        self.scaled.clear()
+        scales = [1.0, 0.95, 1.05, 0.9, 1.1]
         for key, tmpls in self.templates.items():
+            self.scaled[key] = []
             for tmpl in tmpls:
-                # ข้าม template ที่ใหญ่กว่า frame
-                if tmpl.shape[0] > gray.shape[0] or tmpl.shape[1] > gray.shape[1]:
-                    continue
+                for sc in scales:
+                    tw, th = int(tmpl.shape[1]*sc), int(tmpl.shape[0]*sc)
+                    if tw < 3 or th < 3: continue
+                    self.scaled[key].append(cv2.resize(tmpl, (tw, th)))
 
-                # Multi-scale matching
-                for scale in [1.0, 0.95, 1.05, 0.9, 1.1]:
-                    tw = int(tmpl.shape[1] * scale)
-                    th = int(tmpl.shape[0] * scale)
-                    if tw < 3 or th < 3 or tw > gray.shape[1] or th > gray.shape[0]:
-                        continue
-                    resized = cv2.resize(tmpl, (tw, th))
-                    res = cv2.matchTemplate(gray, resized, cv2.TM_CCOEFF_NORMED)
-                    _, mx, _, _ = cv2.minMaxLoc(res)
-                    if mx > threshold and mx > best_val:
-                        best_key, best_val = key, mx
+    def detect(self, gray, threshold=0.75):
+        """ตรวจจับ key จาก grayscale frame (ส่ง gray เข้ามาเลย ไม่ต้อง convert ซ้ำ)
+           return (key, confidence) หรือ (None, 0)"""
+        best_key, best_val = None, 0
+        gh, gw = gray.shape[:2]
+
+        for key, scaled_list in self.scaled.items():
+            for tmpl in scaled_list:
+                th, tw = tmpl.shape[:2]
+                if th > gh or tw > gw: continue
+                res = cv2.matchTemplate(gray, tmpl, cv2.TM_CCOEFF_NORMED)
+                _, mx, _, _ = cv2.minMaxLoc(res)
+                if mx > threshold and mx > best_val:
+                    best_key, best_val = key, mx
+                    # Early exit ถ้า confidence สูงมาก (เร็วขึ้น)
+                    if mx > 0.95:
+                        return best_key, best_val
 
         return best_key, best_val
 
     def save(self, key, frame_bgr):
-        """บันทึก template จาก frame ปัจจุบัน"""
-        # หา variant number
         existing = [f for f in os.listdir(self.dir) if f.lower().startswith(f"{key}") and f.endswith(".png")]
-        if not existing:
-            fname = f"{key}.png"
-        else:
-            fname = f"{key}_{len(existing)+1}.png"
-
+        fname = f"{key}.png" if not existing else f"{key}_{len(existing)+1}.png"
         path = os.path.join(self.dir, fname)
         cv2.imwrite(path, frame_bgr)
-
-        # โหลดเข้า memory
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         if key not in self.templates:
             self.templates[key] = []
         self.templates[key].append(gray)
+        self._precompute_scales()  # rebuild scaled cache
         return fname
 
     @property
@@ -176,35 +178,44 @@ class TemplateEngine:
 # Frame Change Detector
 # ============================================================
 class FrameDetector:
+    """ตรวจจับว่าหน้าจอเปลี่ยน → key ใหม่มา
+
+    Logic:
+    - หน้าจอเปลี่ยน → reset pressed flag → พร้อมกดใหม่
+    - กดปุ่มแล้ว → set pressed = True → รอจนหน้าจอเปลี่ยนอีก
+    - Retry: ถ้า frame เปลี่ยนแล้วแต่ match ไม่เจอ จะลองได้อีกหลาย frame
+      จนกว่าจะกดสำเร็จ หรือหน้าจอเปลี่ยนอีกครั้ง
+    """
     def __init__(self, threshold=12, min_cd_ms=80):
         self.threshold = threshold
         self.min_cd = min_cd_ms / 1000.0
         self.last_gray = None
         self.last_time = 0
-        self.pressed = False
+        self.pressed = False      # กด key จาก frame ชุดนี้แล้วหรือยัง
+        self.change_pct = 0       # % ที่เปลี่ยน (สำหรับ debug)
 
-    def check(self, frame_bgr):
-        """return True ถ้าหน้าจอเปลี่ยนจริง"""
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        small = cv2.resize(gray, (64, 64))
-
+    def check_raw(self, small_gray):
+        """เช็ค frame change จาก pre-resized 64x64 gray"""
         if self.last_gray is None:
-            self.last_gray = small
+            self.last_gray = small_gray.copy()
             self.pressed = False
-            return True
+            self.change_pct = 100
+            return
 
-        diff = cv2.absdiff(self.last_gray, small)
-        pct = (np.count_nonzero(diff > 25) / diff.size) * 100
+        diff = cv2.absdiff(self.last_gray, small_gray)
+        self.change_pct = (np.count_nonzero(diff > 25) / diff.size) * 100
 
-        if pct >= self.threshold:
-            self.last_gray = small
+        if self.change_pct >= self.threshold:
+            # หน้าจอเปลี่ยนจริง → key ใหม่มา → reset
+            self.last_gray = small_gray.copy()
             self.pressed = False
-            return True
-        return False
 
     def can_press(self):
-        if self.pressed: return False
-        if (time.time() - self.last_time) < self.min_cd: return False
+        """ยังไม่ได้กด key จาก frame ชุดนี้ + ผ่าน min cooldown"""
+        if self.pressed:
+            return False
+        if (time.time() - self.last_time) < self.min_cd:
+            return False
         return True
 
     def record(self):
@@ -215,6 +226,7 @@ class FrameDetector:
         self.last_gray = None
         self.last_time = 0
         self.pressed = False
+        self.change_pct = 0
 
 
 # ============================================================
@@ -409,6 +421,14 @@ class App:
         self.lbl_speed.pack(anchor="w")
         self.lbl_debug = tk.Label(mid, text="Match: - (0%)", bg=C["card"], fg=C["dim"], font=("Consolas",9))
         self.lbl_debug.pack(anchor="w")
+        self.lbl_frame = tk.Label(mid, text="Frame: 0%", bg=C["card"], fg=C["dim"], font=("Consolas",9))
+        self.lbl_frame.pack(anchor="w")
+
+        # History (last 10 keys)
+        self.lbl_history = tk.Label(si, text="", bg=C["card"], fg=C["cyan"],
+                                     font=("Consolas",11,"bold"), anchor="e", width=14)
+        self.lbl_history.pack(side=tk.RIGHT, padx=(0,8))
+        self.key_history = []
 
         # Preview
         pf = tk.Frame(si, bg=C["bg2"], width=110, height=70, highlightbackground=C["border"], highlightthickness=1)
@@ -534,7 +554,8 @@ class App:
             self.log("Capture FAILED!", "err"); return
         self.log(f"Capture OK  {frame.shape[1]}x{frame.shape[0]}  method={self.capture.method}", "ok")
         if self.engine.count > 0:
-            key, conf = self.engine.detect(frame, self.v_thresh.get()/100)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            key, conf = self.engine.detect(gray, self.v_thresh.get()/100)
             if key:
                 self.log(f"  Detected: '{key.upper()}'  confidence: {conf:.0%}", "key")
             else:
@@ -692,12 +713,18 @@ class App:
                 if frame is None:
                     time.sleep(0.05); continue
 
-                # 1. หน้าจอเปลี่ยนหรือยัง?
-                changed = self.frame_det.check(frame)
+                # Convert gray ครั้งเดียว ใช้ทั้ง frame detect + template match
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                # 2. ถ้าเปลี่ยน + ยังไม่ได้กด -> detect key
-                if changed and self.frame_det.can_press():
-                    key, conf = self.engine.detect(frame, thresh)
+                # 1. เช็คว่าหน้าจอเปลี่ยนหรือยัง
+                small = cv2.resize(gray, (64, 64))
+                self.frame_det.check_raw(small)
+
+                # 2. ถ้ายังไม่ได้กด key จาก frame นี้ → ลอง detect ทุก frame
+                #    (ไม่ใช่แค่ตอน frame เปลี่ยน เพราะ transition อาจ blur)
+                if self.frame_det.can_press():
+                    key, conf = self.engine.detect(gray, thresh)
+
                     if key:
                         kb.press_and_release(key)
                         self.frame_det.record()
@@ -721,6 +748,12 @@ class App:
                                fg=C["green"] if conf > 0.85 else C["orange"])
         e = time.time() - (self.session_start or time.time())
         if e > 0: self.lbl_speed.config(text=f"{self.session_keys/e:.1f} /sec")
+
+        # History
+        self.key_history.append(key.upper())
+        if len(self.key_history) > 12: self.key_history.pop(0)
+        self.lbl_history.config(text=" ".join(self.key_history[-12:]))
+
         self.log(f"  [{self.session_keys}]  {key.upper()}  ({conf:.0%})", "key")
 
     # ── Loops ──
@@ -739,9 +772,14 @@ class App:
         if self.running and self.session_start:
             e=int(time.time()-self.session_start); m,s=divmod(e,60)
             self.hdr.itemconfig(self.lbl_timer, text=f"{m:02d}:{s:02d}", fill=C["green"])
+            # Live frame change %
+            pct = self.frame_det.change_pct
+            fc = C["green"] if pct > self.v_change.get() else C["dim"]
+            self.lbl_frame.config(text=f"Frame: {pct:.1f}%  {'NEW' if not self.frame_det.pressed else 'done'}", fg=fc)
         else:
             self.hdr.itemconfig(self.lbl_timer, text="00:00", fill=C["dim2"])
-        self.root.after(1000, self._timer_loop)
+            self.lbl_frame.config(text="Frame: -", fg=C["dim"])
+        self.root.after(200, self._timer_loop)
 
     # ── Log ──
     def log(self, msg, tag=None):
