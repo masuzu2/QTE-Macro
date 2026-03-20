@@ -1,225 +1,240 @@
 <!DOCTYPE html>
-<html lang="th" class="dark">
+<html lang="th">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QTE Macro</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="/eel.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <script>
-tailwind.config = {
-  darkMode: 'class',
-  theme: {
-    extend: {
-      fontFamily: { sans: ['Inter'], mono: ['JetBrains Mono'] },
-      colors: {
-        dark: { 900:'#060a13', 800:'#0a0f1a', 700:'#0f1624', 600:'#151d30', 500:'#1c2640' },
-        neon: { blue:'#00d4ff', green:'#22ff88', red:'#ff4466', orange:'#ff9f43', purple:'#a855f7', cyan:'#67e8f9' }
-      },
-      animation: {
-        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'glow': 'glow 2s ease-in-out infinite alternate',
-      },
-      keyframes: {
-        glow: { '0%': { boxShadow: '0 0 5px rgba(0,212,255,0.2)' }, '100%': { boxShadow: '0 0 20px rgba(0,212,255,0.4)' } }
-      }
-    }
-  }
-}
+tailwind.config={darkMode:'class',theme:{extend:{
+  fontFamily:{sans:['Inter'],mono:['JetBrains Mono']},
+  colors:{
+    base:{950:'#030712',900:'#070c18',800:'#0c1222',700:'#111b33',600:'#182444',500:'#1f2f52'},
+    acc:{blue:'#3b82f6',cyan:'#22d3ee',green:'#10b981',emerald:'#34d399',red:'#ef4444',rose:'#fb7185',
+         orange:'#f97316',amber:'#fbbf24',purple:'#a78bfa',pink:'#f472b6',sky:'#38bdf8'},
+  },
+  animation:{'fade-in':'fadeIn 0.3s ease','slide-up':'slideUp 0.3s ease'},
+  keyframes:{fadeIn:{from:{opacity:0},to:{opacity:1}},slideUp:{from:{opacity:0,transform:'translateY(8px)'},to:{opacity:1,transform:'translateY(0)'}}}
+}}}
 </script>
 <style>
-  body { background: #060a13; overflow-x: hidden; }
-  .glass { background: rgba(15,22,36,0.8); backdrop-filter: blur(12px); border: 1px solid rgba(30,48,80,0.5); }
-  .glass-hover:hover { background: rgba(28,38,64,0.9); border-color: rgba(0,212,255,0.3); }
-  .neon-border { border: 1px solid rgba(0,212,255,0.15); }
-  .neon-glow { box-shadow: 0 0 15px rgba(0,212,255,0.1), inset 0 0 15px rgba(0,212,255,0.02); }
-  .gradient-text { background: linear-gradient(135deg, #00d4ff, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-  .key-badge { transition: all 0.15s ease; }
-  .key-badge.active { animation: keyPop 0.3s ease; }
-  @keyframes keyPop { 0%{transform:scale(1)} 50%{transform:scale(1.2)} 100%{transform:scale(1)} }
-  .btn-glow:hover { box-shadow: 0 0 25px rgba(34,255,136,0.3); }
-  .scrollbar-hide::-webkit-scrollbar { display: none; }
-  input[type=range] { -webkit-appearance: none; height: 6px; border-radius: 3px; background: #1c2640; }
-  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; }
-  .range-blue::-webkit-slider-thumb { background: #00d4ff; box-shadow: 0 0 8px rgba(0,212,255,0.5); }
-  .range-green::-webkit-slider-thumb { background: #22ff88; box-shadow: 0 0 8px rgba(34,255,136,0.5); }
-  .range-purple::-webkit-slider-thumb { background: #a855f7; box-shadow: 0 0 8px rgba(168,85,247,0.5); }
-  .range-orange::-webkit-slider-thumb { background: #ff9f43; box-shadow: 0 0 8px rgba(255,159,67,0.5); }
+  * { -webkit-font-smoothing: antialiased; }
+  body { background: #030712; }
+  .glass { background: linear-gradient(135deg, rgba(12,18,34,0.9), rgba(17,27,51,0.7)); backdrop-filter: blur(20px); border: 1px solid rgba(56,189,248,0.08); }
+  .glass-strong { background: linear-gradient(180deg, rgba(17,27,51,0.95), rgba(12,18,34,0.98)); backdrop-filter: blur(24px); border: 1px solid rgba(56,189,248,0.1); }
+  .glow-line { height: 1px; background: linear-gradient(90deg, transparent, rgba(56,189,248,0.3), rgba(168,85,247,0.3), transparent); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.15); border-radius: 4px; }
+
+  /* Range sliders */
+  input[type=range] { -webkit-appearance:none; height:4px; border-radius:2px; background:rgba(31,47,82,0.8); outline:none; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; border-radius:50%; cursor:pointer; transition:box-shadow 0.15s; }
+  input[type=range]:hover::-webkit-slider-thumb { box-shadow: 0 0 12px currentColor; }
+  .r-cyan::-webkit-slider-thumb { background:#22d3ee; }
+  .r-green::-webkit-slider-thumb { background:#10b981; }
+  .r-purple::-webkit-slider-thumb { background:#a78bfa; }
+  .r-orange::-webkit-slider-thumb { background:#f97316; }
+
+  /* Toggle */
+  .toggle-track { width:36px; height:20px; border-radius:10px; background:rgba(31,47,82,0.8); transition:all 0.2s; position:relative; cursor:pointer; }
+  .toggle-track.on { background:rgba(16,185,129,0.25); border-color:rgba(16,185,129,0.4); }
+  .toggle-dot { width:16px; height:16px; border-radius:50%; background:#475569; position:absolute; top:2px; left:2px; transition:all 0.2s; }
+  .toggle-track.on .toggle-dot { transform:translateX(16px); background:#10b981; }
+
+  /* Key badge animation */
+  @keyframes keyPop { 0%{transform:scale(0.8);opacity:0} 100%{transform:scale(1);opacity:1} }
+  .key-pop { animation: keyPop 0.2s cubic-bezier(0.34,1.56,0.64,1); }
+
+  /* Preview border animation */
+  @keyframes borderPulse {
+    0%,100% { border-color: rgba(56,189,248,0.15); }
+    50% { border-color: rgba(56,189,248,0.35); }
+  }
+  .preview-active { animation: borderPulse 2s ease infinite; }
+
+  /* Status dot pulse */
+  @keyframes dotPulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(16,185,129,0); }
+  }
+  .dot-pulse { animation: dotPulse 1.5s ease infinite; }
 </style>
 </head>
 
-<body class="font-sans text-white min-h-screen">
+<body class="font-sans text-slate-200 min-h-screen overflow-x-hidden">
 
-<!-- Background -->
-<div class="fixed inset-0 z-0">
-  <div class="absolute top-0 left-0 w-96 h-96 bg-neon-blue/5 rounded-full blur-[120px]"></div>
-  <div class="absolute bottom-0 right-0 w-96 h-96 bg-neon-purple/5 rounded-full blur-[120px]"></div>
+<!-- Ambient bg -->
+<div class="fixed inset-0 pointer-events-none">
+  <div class="absolute -top-40 -left-40 w-[500px] h-[500px] bg-acc-sky/[0.03] rounded-full blur-[160px]"></div>
+  <div class="absolute -bottom-40 -right-40 w-[500px] h-[500px] bg-acc-purple/[0.03] rounded-full blur-[160px]"></div>
 </div>
 
-<div class="relative z-10 max-w-xl mx-auto px-4 py-6">
+<div class="relative z-10 max-w-[520px] mx-auto px-5 py-5 space-y-4">
 
   <!-- ═══ HEADER ═══ -->
-  <div class="flex items-center justify-between mb-6">
+  <header class="flex items-end justify-between">
     <div>
-      <h1 class="text-2xl font-black gradient-text tracking-tight">QTE MACRO</h1>
-      <p class="text-xs text-slate-500 mt-0.5">Zero Setup — Select Region → Start</p>
+      <div class="flex items-center gap-2.5">
+        <div class="w-2 h-2 rounded-full bg-acc-cyan shadow-[0_0_8px_rgba(34,211,238,0.5)]"></div>
+        <h1 class="text-lg font-extrabold tracking-tight text-white">QTE Macro</h1>
+      </div>
+      <p class="text-[11px] text-slate-600 mt-0.5 pl-[18px]">Select region → Start</p>
     </div>
     <div class="flex items-center gap-3">
-      <div class="text-right">
-        <div id="statusBadge" class="px-3 py-1 rounded-full text-xs font-bold border border-slate-600 text-slate-500">
-          OFF
-        </div>
+      <div id="statusBadge" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border border-slate-700/50 text-slate-500 bg-base-800/50">
+        <span id="statusDot" class="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
+        <span id="statusText">IDLE</span>
       </div>
-      <div id="timer" class="font-mono text-sm text-slate-600">00:00</div>
+      <span id="timer" class="font-mono text-xs text-slate-600 tabular-nums">00:00</span>
     </div>
-  </div>
+  </header>
+
+  <div class="glow-line"></div>
 
   <!-- ═══ START BUTTON ═══ -->
   <button id="btnStart" onclick="toggleMacro()"
-    class="w-full py-4 rounded-2xl font-black text-xl tracking-wide transition-all duration-200
-           bg-gradient-to-r from-emerald-500 to-green-400 text-black hover:brightness-110 btn-glow
-           active:scale-[0.98] mb-5">
-    START (F5)
+    class="group w-full relative py-3.5 rounded-2xl font-bold text-base tracking-wide transition-all duration-200
+           bg-gradient-to-r from-emerald-600 to-teal-500 text-white
+           hover:shadow-[0_0_30px_rgba(16,185,129,0.25)] active:scale-[0.98]
+           overflow-hidden">
+    <span class="relative z-10" id="btnText">START</span>
+    <div class="absolute inset-0 bg-gradient-to-r from-white/0 via-white/5 to-white/0
+                translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
   </button>
 
-  <!-- ═══ STATS CARD ═══ -->
-  <div class="glass rounded-2xl p-5 mb-4 neon-glow">
-    <div class="flex items-center gap-6">
-      <!-- Counter -->
+  <!-- ═══ LIVE PREVIEW + STATS ═══ -->
+  <div class="glass-strong rounded-2xl overflow-hidden">
+
+    <!-- Preview area -->
+    <div class="relative">
+      <div id="previewBox" class="w-full h-20 bg-base-950 flex items-center justify-center overflow-hidden border-b border-base-600/30 preview-active">
+        <span id="previewPlaceholder" class="text-[11px] text-slate-700">Select region (F6) to see live preview</span>
+        <img id="previewImg" src="" class="hidden w-full h-full object-contain" alt="">
+      </div>
+      <!-- Detected lane overlay -->
+      <div id="laneOverlay" class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-base-950/90 to-transparent px-4 py-2">
+        <div id="laneDisplay" class="font-mono text-base font-bold text-acc-cyan tracking-[0.3em] text-center min-h-[24px]"></div>
+      </div>
+    </div>
+
+    <!-- Stats row -->
+    <div class="px-5 py-4 flex items-center gap-5">
       <div>
-        <div id="keyCount" class="font-mono text-5xl font-black text-neon-green leading-none">0</div>
-        <div class="text-[10px] text-slate-500 font-bold tracking-widest mt-1">KEYS PRESSED</div>
+        <div id="keyCount" class="font-mono text-4xl font-black text-emerald-400 leading-none tracking-tight">0</div>
+        <div class="text-[9px] text-slate-600 font-semibold tracking-[0.2em] mt-1">KEYS</div>
       </div>
-      <!-- Info -->
-      <div class="flex-1 space-y-1.5">
-        <div id="laneDisplay" class="font-mono text-lg font-bold text-neon-cyan tracking-widest min-h-[28px]">—</div>
-        <div id="speedDisplay" class="font-mono text-xs text-slate-500">0.0 keys/sec</div>
+      <div class="w-px h-10 bg-base-600/30"></div>
+      <div class="flex-1 space-y-1">
+        <div id="speedDisplay" class="font-mono text-sm text-slate-500">—</div>
+        <div id="matchInfo" class="font-mono text-[11px] text-slate-600"></div>
       </div>
     </div>
 
-    <!-- Preview -->
-    <div id="previewBox" class="mt-4 rounded-xl bg-dark-900 border border-dark-500 overflow-hidden h-16 flex items-center justify-center">
-      <span class="text-xs text-slate-600">Select region to see preview</span>
+    <!-- Key history -->
+    <div class="px-5 pb-4">
+      <div id="historyBox" class="flex flex-wrap gap-1.5 min-h-[28px]"></div>
     </div>
-
-    <!-- History -->
-    <div id="historyDisplay" class="mt-3 flex flex-wrap gap-1.5 min-h-[28px]"></div>
   </div>
 
-  <!-- ═══ STEP 1: REGION ═══ -->
-  <div class="mb-3">
-    <div class="flex items-center gap-2 mb-2">
-      <span class="w-5 h-5 rounded-full bg-neon-blue/20 text-neon-blue text-xs font-bold flex items-center justify-center">1</span>
-      <span class="text-xs font-bold text-slate-500 tracking-wider">SELECT REGION</span>
-      <div class="flex-1 h-px bg-dark-500"></div>
+  <!-- ═══ REGION ═══ -->
+  <div>
+    <div class="flex items-center gap-2 mb-1.5">
+      <div class="flex items-center justify-center w-4 h-4 rounded-md bg-acc-sky/10 text-acc-sky text-[9px] font-bold">1</div>
+      <span class="text-[10px] font-semibold text-slate-500 tracking-wider uppercase">Capture Region</span>
+      <div class="flex-1 h-px bg-base-600/20"></div>
     </div>
-    <div class="glass rounded-xl p-4 flex items-center gap-3">
+    <div class="glass rounded-xl px-4 py-3 flex items-center gap-2.5">
       <button onclick="selectRegion()"
-        class="px-5 py-2.5 rounded-xl bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-bold text-sm
-               hover:bg-neon-blue/20 hover:border-neon-blue/50 transition-all active:scale-95">
-        Select Region (F6)
+        class="px-4 py-2 rounded-lg bg-acc-sky/10 border border-acc-sky/20 text-acc-sky text-xs font-semibold
+               hover:bg-acc-sky/15 hover:border-acc-sky/30 transition-all active:scale-95">
+        Select (F6)
       </button>
       <button onclick="testCapture()"
-        class="px-4 py-2.5 rounded-xl bg-neon-orange/10 border border-neon-orange/30 text-neon-orange font-bold text-sm
-               hover:bg-neon-orange/20 transition-all active:scale-95">
+        class="px-3 py-2 rounded-lg bg-acc-orange/10 border border-acc-orange/20 text-acc-orange text-xs font-semibold
+               hover:bg-acc-orange/15 transition-all active:scale-95">
         Test
       </button>
       <div class="flex-1"></div>
-      <div id="regionInfo" class="font-mono text-xs text-neon-orange">Not set</div>
+      <span id="regionInfo" class="font-mono text-[11px] text-acc-amber/70">not set</span>
     </div>
   </div>
 
-  <!-- ═══ STEP 2: SETTINGS ═══ -->
-  <div class="mb-3">
-    <div class="flex items-center gap-2 mb-2">
-      <span class="w-5 h-5 rounded-full bg-neon-purple/20 text-neon-purple text-xs font-bold flex items-center justify-center">2</span>
-      <span class="text-xs font-bold text-slate-500 tracking-wider">SETTINGS</span>
-      <div class="flex-1 h-px bg-dark-500"></div>
+  <!-- ═══ SETTINGS ═══ -->
+  <div>
+    <div class="flex items-center gap-2 mb-1.5">
+      <div class="flex items-center justify-center w-4 h-4 rounded-md bg-acc-purple/10 text-acc-purple text-[9px] font-bold">2</div>
+      <span class="text-[10px] font-semibold text-slate-500 tracking-wider uppercase">Settings</span>
+      <div class="flex-1 h-px bg-base-600/20"></div>
     </div>
-    <div class="glass rounded-xl p-4 space-y-3">
-      <!-- Keys per lane -->
-      <div class="flex items-center justify-between">
-        <span class="text-sm text-slate-300">Keys per Lane</span>
-        <div class="flex items-center gap-3">
-          <input type="range" id="sNumKeys" min="1" max="12" value="6" class="w-36 range-blue" oninput="updateSlider(this,'vNumKeys')">
-          <span id="vNumKeys" class="font-mono text-sm text-neon-blue font-bold w-8 text-right">6</span>
-        </div>
+    <div class="glass rounded-xl px-4 py-3.5 space-y-3">
+
+      <div class="flex items-center">
+        <span class="text-xs text-slate-400 w-28">Keys / Lane</span>
+        <input type="range" id="sNum" min="1" max="12" value="6" class="flex-1 r-cyan" oninput="uSlider(this,'vNum')">
+        <span id="vNum" class="font-mono text-xs text-acc-cyan font-semibold w-8 text-right">6</span>
       </div>
-      <!-- Scan speed -->
-      <div class="flex items-center justify-between">
-        <span class="text-sm text-slate-300">Scan Speed</span>
-        <div class="flex items-center gap-3">
-          <input type="range" id="sScan" min="20" max="150" value="40" class="w-36 range-green" oninput="updateSlider(this,'vScan','ms')">
-          <span id="vScan" class="font-mono text-sm text-neon-green font-bold w-12 text-right">40ms</span>
-        </div>
+
+      <div class="flex items-center">
+        <span class="text-xs text-slate-400 w-28">Scan Speed</span>
+        <input type="range" id="sScan" min="20" max="150" value="40" class="flex-1 r-green" oninput="uSlider(this,'vScan','ms')">
+        <span id="vScan" class="font-mono text-xs text-acc-green font-semibold w-10 text-right">40ms</span>
       </div>
-      <!-- Key delay -->
-      <div class="flex items-center justify-between">
-        <span class="text-sm text-slate-300">Key Delay</span>
-        <div class="flex items-center gap-3">
-          <input type="range" id="sKeyDelay" min="20" max="200" value="50" class="w-36 range-purple" oninput="updateSlider(this,'vKeyDelay','ms')">
-          <span id="vKeyDelay" class="font-mono text-sm text-neon-purple font-bold w-12 text-right">50ms</span>
-        </div>
+
+      <div class="flex items-center">
+        <span class="text-xs text-slate-400 w-28">Key Delay</span>
+        <input type="range" id="sKD" min="20" max="200" value="50" class="flex-1 r-purple" oninput="uSlider(this,'vKD','ms')">
+        <span id="vKD" class="font-mono text-xs text-acc-purple font-semibold w-10 text-right">50ms</span>
       </div>
-      <!-- Lane delay -->
-      <div class="flex items-center justify-between">
-        <span class="text-sm text-slate-300">Lane Delay</span>
-        <div class="flex items-center gap-3">
-          <input type="range" id="sLaneDelay" min="100" max="1000" value="300" step="50" class="w-36 range-orange" oninput="updateSlider(this,'vLaneDelay','ms')">
-          <span id="vLaneDelay" class="font-mono text-sm text-neon-orange font-bold w-12 text-right">300ms</span>
-        </div>
+
+      <div class="flex items-center">
+        <span class="text-xs text-slate-400 w-28">Lane Delay</span>
+        <input type="range" id="sLD" min="100" max="1000" value="300" step="50" class="flex-1 r-orange" oninput="uSlider(this,'vLD','ms')">
+        <span id="vLD" class="font-mono text-xs text-acc-orange font-semibold w-10 text-right">300ms</span>
       </div>
-      <!-- Always on top -->
-      <div class="flex items-center justify-between pt-1">
-        <span class="text-sm text-slate-300">Always on Top</span>
-        <label class="relative inline-flex items-center cursor-pointer">
-          <input type="checkbox" id="chkOnTop" checked class="sr-only peer" onchange="toggleOnTop()">
-          <div class="w-9 h-5 bg-dark-500 rounded-full peer peer-checked:bg-neon-blue/30 peer-checked:border-neon-blue/50 border border-dark-500 transition-all
-                      after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:rounded-full after:h-4 after:w-4 after:transition-all
-                      peer-checked:after:translate-x-4 peer-checked:after:bg-neon-blue"></div>
-        </label>
+
+      <div class="flex items-center justify-between pt-0.5">
+        <span class="text-xs text-slate-400">Always on Top</span>
+        <div id="togOnTop" class="toggle-track border border-base-500/50 on" onclick="toggleOT(this)">
+          <div class="toggle-dot"></div>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- ═══ LOG ═══ -->
   <div>
-    <div class="flex items-center gap-2 mb-2">
-      <span class="text-xs font-bold text-slate-500 tracking-wider">LOG</span>
-      <div class="flex-1 h-px bg-dark-500"></div>
-      <button onclick="clearLog()" class="text-xs text-slate-600 hover:text-slate-400 transition-colors">Clear</button>
+    <div class="flex items-center gap-2 mb-1.5">
+      <span class="text-[10px] font-semibold text-slate-500 tracking-wider uppercase">Log</span>
+      <div class="flex-1 h-px bg-base-600/20"></div>
+      <button onclick="clearLog()" class="text-[10px] text-slate-700 hover:text-slate-400 transition-colors">clear</button>
     </div>
-    <div id="logBox" class="glass rounded-xl p-3 h-36 overflow-y-auto scrollbar-hide font-mono text-xs space-y-0.5">
-      <div class="text-slate-600">Ready.</div>
+    <div id="logBox" class="glass rounded-xl px-3.5 py-2.5 h-32 overflow-y-auto font-mono text-[11px] leading-relaxed space-y-px">
+      <div class="text-slate-700">Initializing...</div>
     </div>
   </div>
 
   <!-- Footer -->
-  <div class="text-center mt-4 text-[10px] text-slate-700 tracking-wider">
-    F5 Start/Stop &nbsp;&middot;&nbsp; F6 Region &nbsp;&middot;&nbsp; ESC Stop
+  <div class="text-center text-[9px] text-slate-800 tracking-widest pt-1">
+    F5 Start &middot; F6 Region &middot; ESC Stop
   </div>
 
 </div>
 
 <script>
-// ═══════════════════════════════════
-// STATE
-// ═══════════════════════════════════
-let isRunning = false;
-let keyHistory = [];
+let isRunning = false, keyHistory = [];
 
-// ═══════════════════════════════════
-// EEL CALLBACKS (Python → JS)
-// ═══════════════════════════════════
+// ── Python → JS ──
 eel.expose(onKeyPressed);
 function onKeyPressed(key, count, speed) {
   document.getElementById('keyCount').textContent = count;
   document.getElementById('speedDisplay').textContent = speed.toFixed(1) + ' keys/sec';
-
-  // History badges
   keyHistory.push(key.toUpperCase());
-  if (keyHistory.length > 20) keyHistory.shift();
+  if (keyHistory.length > 16) keyHistory.shift();
   renderHistory();
 }
 
@@ -231,113 +246,92 @@ function onLaneDetected(keys) {
 eel.expose(onLog);
 function onLog(msg, type) {
   const box = document.getElementById('logBox');
-  const div = document.createElement('div');
-  const time = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-
-  const colors = {
-    ok: 'text-neon-green', err: 'text-neon-red', warn: 'text-neon-orange',
-    key: 'text-neon-cyan font-bold', lane: 'text-neon-purple font-bold',
-    dim: 'text-slate-600', default: 'text-slate-400'
-  };
-
-  div.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colors[type]||colors.default}">${msg}</span>`;
-  box.appendChild(div);
+  const d = document.createElement('div');
+  const t = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const c = {ok:'text-emerald-400',err:'text-rose-400',warn:'text-amber-400',key:'text-cyan-400 font-semibold',lane:'text-violet-400 font-semibold',dim:'text-slate-600'}[type]||'text-slate-400';
+  d.innerHTML = `<span class="text-slate-700">${t}</span> <span class="${c}">${msg}</span>`;
+  box.appendChild(d);
   box.scrollTop = box.scrollHeight;
-
-  // Keep max 100 lines
-  while (box.children.length > 100) box.removeChild(box.firstChild);
+  while (box.children.length > 80) box.removeChild(box.firstChild);
 }
 
 eel.expose(onRegionSet);
 function onRegionSet(info) {
-  document.getElementById('regionInfo').textContent = info;
-  document.getElementById('regionInfo').className = 'font-mono text-xs text-neon-green';
+  const el = document.getElementById('regionInfo');
+  el.textContent = info; el.className = 'font-mono text-[11px] text-emerald-400';
 }
 
 eel.expose(onPreview);
-function onPreview(imgBase64) {
-  const box = document.getElementById('previewBox');
-  box.innerHTML = `<img src="data:image/png;base64,${imgBase64}" class="w-full h-full object-contain">`;
+function onPreview(b64) {
+  const img = document.getElementById('previewImg');
+  const ph = document.getElementById('previewPlaceholder');
+  img.src = 'data:image/png;base64,' + b64;
+  img.classList.remove('hidden');
+  ph.classList.add('hidden');
 }
 
 eel.expose(onTimerUpdate);
-function onTimerUpdate(text) {
-  document.getElementById('timer').textContent = text;
-}
+function onTimerUpdate(t) { document.getElementById('timer').textContent = t; }
 
 eel.expose(onStatusChange);
-function onStatusChange(running) {
-  isRunning = running;
+function onStatusChange(on) {
+  isRunning = on;
   const btn = document.getElementById('btnStart');
+  const txt = document.getElementById('btnText');
   const badge = document.getElementById('statusBadge');
+  const dot = document.getElementById('statusDot');
+  const stxt = document.getElementById('statusText');
+  const tmr = document.getElementById('timer');
 
-  if (running) {
-    btn.textContent = 'STOP (F5)';
-    btn.className = btn.className.replace('from-emerald-500 to-green-400', 'from-red-500 to-rose-400').replace('btn-glow','');
-    badge.textContent = 'ACTIVE';
-    badge.className = 'px-3 py-1 rounded-full text-xs font-bold border border-neon-green/50 text-neon-green bg-neon-green/10 animate-pulse-slow';
-    document.getElementById('timer').className = 'font-mono text-sm text-neon-green';
+  if (on) {
+    txt.textContent = 'STOP';
+    btn.className = btn.className.replace('from-emerald-600 to-teal-500','from-rose-600 to-red-500')
+      .replace('hover:shadow-[0_0_30px_rgba(16,185,129,0.25)]','hover:shadow-[0_0_30px_rgba(239,68,68,0.25)]');
+    badge.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border border-emerald-500/30 text-emerald-400 bg-emerald-500/10';
+    dot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 dot-pulse';
+    stxt.textContent = 'ACTIVE';
+    tmr.className = 'font-mono text-xs text-emerald-400 tabular-nums';
   } else {
-    btn.textContent = 'START (F5)';
-    btn.className = btn.className.replace('from-red-500 to-rose-400', 'from-emerald-500 to-green-400') + ' btn-glow';
-    badge.textContent = 'OFF';
-    badge.className = 'px-3 py-1 rounded-full text-xs font-bold border border-slate-600 text-slate-500';
-    document.getElementById('timer').className = 'font-mono text-sm text-slate-600';
+    txt.textContent = 'START';
+    btn.className = btn.className.replace('from-rose-600 to-red-500','from-emerald-600 to-teal-500')
+      .replace('hover:shadow-[0_0_30px_rgba(239,68,68,0.25)]','hover:shadow-[0_0_30px_rgba(16,185,129,0.25)]');
+    badge.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border border-slate-700/50 text-slate-500 bg-base-800/50';
+    dot.className = 'w-1.5 h-1.5 rounded-full bg-slate-600';
+    stxt.textContent = 'IDLE';
+    tmr.className = 'font-mono text-xs text-slate-600 tabular-nums';
   }
 }
 
-// ═══════════════════════════════════
-// JS → EEL (call Python)
-// ═══════════════════════════════════
+// ── JS → Python ──
 async function toggleMacro() {
-  const numKeys = parseInt(document.getElementById('sNumKeys').value);
-  const scan = parseInt(document.getElementById('sScan').value);
-  const keyDelay = parseInt(document.getElementById('sKeyDelay').value);
-  const laneDelay = parseInt(document.getElementById('sLaneDelay').value);
-  await eel.toggle_macro(numKeys, scan, keyDelay, laneDelay)();
+  await eel.toggle_macro(
+    +document.getElementById('sNum').value,
+    +document.getElementById('sScan').value,
+    +document.getElementById('sKD').value,
+    +document.getElementById('sLD').value
+  )();
 }
+async function selectRegion() { await eel.select_region()(); }
+async function testCapture() { await eel.test_capture(+document.getElementById('sNum').value)(); }
 
-async function selectRegion() {
-  await eel.select_region()();
+// ── UI helpers ──
+function uSlider(el, id, u='') { document.getElementById(id).textContent = el.value + u; }
+function toggleOT(el) {
+  el.classList.toggle('on');
+  eel.set_on_top(el.classList.contains('on'));
 }
-
-async function testCapture() {
-  const numKeys = parseInt(document.getElementById('sNumKeys').value);
-  await eel.test_capture(numKeys)();
-}
-
-async function toggleOnTop() {
-  const checked = document.getElementById('chkOnTop').checked;
-  await eel.set_on_top(checked)();
-}
-
-// ═══════════════════════════════════
-// UI Helpers
-// ═══════════════════════════════════
-function updateSlider(el, spanId, unit='') {
-  document.getElementById(spanId).textContent = el.value + unit;
-}
-
 function renderHistory() {
-  const box = document.getElementById('historyDisplay');
-  box.innerHTML = keyHistory.map(k =>
-    `<span class="key-badge inline-flex items-center justify-center w-7 h-7 rounded-lg
-            bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan font-mono text-xs font-bold">${k}</span>`
+  document.getElementById('historyBox').innerHTML = keyHistory.map(k =>
+    `<span class="key-pop inline-flex items-center justify-center w-6 h-6 rounded-md
+      bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 font-mono text-[10px] font-bold">${k}</span>`
   ).join('');
-  // Animate last
-  const last = box.lastElementChild;
-  if (last) { last.classList.add('active'); setTimeout(() => last.classList.remove('active'), 300); }
 }
+function clearLog() { document.getElementById('logBox').innerHTML = '<div class="text-slate-700">cleared</div>'; }
 
-function clearLog() {
-  document.getElementById('logBox').innerHTML = '<div class="text-slate-600">Log cleared.</div>';
-}
-
-// Keyboard shortcuts
 document.addEventListener('keydown', e => {
-  if (e.key === 'F5') { e.preventDefault(); toggleMacro(); }
-  if (e.key === 'F6') { e.preventDefault(); selectRegion(); }
-  if (e.key === 'Escape' && isRunning) { toggleMacro(); }
+  if (e.key==='F5'){e.preventDefault();toggleMacro()}
+  if (e.key==='F6'){e.preventDefault();selectRegion()}
+  if (e.key==='Escape'&&isRunning) toggleMacro();
 });
 </script>
 </body>

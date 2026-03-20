@@ -45,8 +45,8 @@ class Cap:
                 return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
         except: return None
 
-    def grab_b64(self, region):
-        """Grab as base64 PNG for web preview"""
+    def grab_b64(self, region, max_w=480):
+        """Grab as base64 JPEG (fast) for web preview"""
         try:
             if self.sct:
                 s = self.sct.grab(region)
@@ -54,8 +54,13 @@ class Cap:
             else:
                 img = ImageGrab.grab(bbox=(region["left"],region["top"],
                     region["left"]+region["width"],region["top"]+region["height"]))
+            # Resize ให้เล็กลง → ส่งเร็วขึ้น
+            w, h = img.size
+            if w > max_w:
+                ratio = max_w / w
+                img = img.resize((max_w, max(int(h * ratio), 1)), Image.NEAREST)
             buf = io.BytesIO()
-            img.save(buf, format="PNG")
+            img.save(buf, format="JPEG", quality=60)  # JPEG เร็วกว่า PNG 5x
             return base64.b64encode(buf.getvalue()).decode()
         except: return None
 
@@ -431,9 +436,21 @@ def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
     eel.onStatusChange(False)
 
 
-# Timer + Preview updater
-def bg_updater():
-    global session_start
+# Preview thread - fast, separate from timer
+def preview_loop():
+    """Preview จอ realtime ทุก 300ms ใช้ JPEG เล็ก ไม่ค้าง"""
+    prev_cap = Cap()  # ใช้ capture แยก ไม่ชนกับ macro thread
+    while True:
+        try:
+            if region:
+                b64 = prev_cap.grab_b64(region)
+                if b64:
+                    eel.onPreview(b64)
+        except: pass
+        time.sleep(0.3)
+
+# Timer thread
+def timer_loop():
     while True:
         try:
             if running and session_start:
@@ -442,13 +459,8 @@ def bg_updater():
                 eel.onTimerUpdate(f"{m:02d}:{s:02d}")
             else:
                 eel.onTimerUpdate("00:00")
-
-            # Preview
-            if region:
-                b64 = cap.grab_b64(region)
-                if b64: eel.onPreview(b64)
         except: pass
-        time.sleep(1)
+        time.sleep(0.5)
 
 
 # ═══════════════════════════════════════════════════
@@ -462,8 +474,9 @@ if __name__ == "__main__":
     print(f"Capture: {'OK' if cap.ok else 'FAIL'}")
     print(f"Region: {region}")
 
-    # Start background updater
-    threading.Thread(target=bg_updater, daemon=True).start()
+    # Start background threads
+    threading.Thread(target=preview_loop, daemon=True).start()
+    threading.Thread(target=timer_loop, daemon=True).start()
 
     # Start eel (opens browser window)
     try:
