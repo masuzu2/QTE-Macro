@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="th" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QTE Macro</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/eel.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: { sans: ['Inter'], mono: ['JetBrains Mono'] },
+      colors: {
+        dark: { 900:'#060a13', 800:'#0a0f1a', 700:'#0f1624', 600:'#151d30', 500:'#1c2640' },
+        neon: { blue:'#00d4ff', green:'#22ff88', red:'#ff4466', orange:'#ff9f43', purple:'#a855f7', cyan:'#67e8f9' }
+      },
+      animation: {
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'glow': 'glow 2s ease-in-out infinite alternate',
+      },
+      keyframes: {
+        glow: { '0%': { boxShadow: '0 0 5px rgba(0,212,255,0.2)' }, '100%': { boxShadow: '0 0 20px rgba(0,212,255,0.4)' } }
+      }
+    }
+  }
+}
+</script>
+<style>
+  body { background: #060a13; overflow-x: hidden; }
+  .glass { background: rgba(15,22,36,0.8); backdrop-filter: blur(12px); border: 1px solid rgba(30,48,80,0.5); }
+  .glass-hover:hover { background: rgba(28,38,64,0.9); border-color: rgba(0,212,255,0.3); }
+  .neon-border { border: 1px solid rgba(0,212,255,0.15); }
+  .neon-glow { box-shadow: 0 0 15px rgba(0,212,255,0.1), inset 0 0 15px rgba(0,212,255,0.02); }
+  .gradient-text { background: linear-gradient(135deg, #00d4ff, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .key-badge { transition: all 0.15s ease; }
+  .key-badge.active { animation: keyPop 0.3s ease; }
+  @keyframes keyPop { 0%{transform:scale(1)} 50%{transform:scale(1.2)} 100%{transform:scale(1)} }
+  .btn-glow:hover { box-shadow: 0 0 25px rgba(34,255,136,0.3); }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  input[type=range] { -webkit-appearance: none; height: 6px; border-radius: 3px; background: #1c2640; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; }
+  .range-blue::-webkit-slider-thumb { background: #00d4ff; box-shadow: 0 0 8px rgba(0,212,255,0.5); }
+  .range-green::-webkit-slider-thumb { background: #22ff88; box-shadow: 0 0 8px rgba(34,255,136,0.5); }
+  .range-purple::-webkit-slider-thumb { background: #a855f7; box-shadow: 0 0 8px rgba(168,85,247,0.5); }
+  .range-orange::-webkit-slider-thumb { background: #ff9f43; box-shadow: 0 0 8px rgba(255,159,67,0.5); }
+</style>
+</head>
+
+<body class="font-sans text-white min-h-screen">
+
+<!-- Background -->
+<div class="fixed inset-0 z-0">
+  <div class="absolute top-0 left-0 w-96 h-96 bg-neon-blue/5 rounded-full blur-[120px]"></div>
+  <div class="absolute bottom-0 right-0 w-96 h-96 bg-neon-purple/5 rounded-full blur-[120px]"></div>
+</div>
+
+<div class="relative z-10 max-w-xl mx-auto px-4 py-6">
+
+  <!-- ═══ HEADER ═══ -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-black gradient-text tracking-tight">QTE MACRO</h1>
+      <p class="text-xs text-slate-500 mt-0.5">Zero Setup — Select Region → Start</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <div class="text-right">
+        <div id="statusBadge" class="px-3 py-1 rounded-full text-xs font-bold border border-slate-600 text-slate-500">
+          OFF
+        </div>
+      </div>
+      <div id="timer" class="font-mono text-sm text-slate-600">00:00</div>
+    </div>
+  </div>
+
+  <!-- ═══ START BUTTON ═══ -->
+  <button id="btnStart" onclick="toggleMacro()"
+    class="w-full py-4 rounded-2xl font-black text-xl tracking-wide transition-all duration-200
+           bg-gradient-to-r from-emerald-500 to-green-400 text-black hover:brightness-110 btn-glow
+           active:scale-[0.98] mb-5">
+    START (F5)
+  </button>
+
+  <!-- ═══ STATS CARD ═══ -->
+  <div class="glass rounded-2xl p-5 mb-4 neon-glow">
+    <div class="flex items-center gap-6">
+      <!-- Counter -->
+      <div>
+        <div id="keyCount" class="font-mono text-5xl font-black text-neon-green leading-none">0</div>
+        <div class="text-[10px] text-slate-500 font-bold tracking-widest mt-1">KEYS PRESSED</div>
+      </div>
+      <!-- Info -->
+      <div class="flex-1 space-y-1.5">
+        <div id="laneDisplay" class="font-mono text-lg font-bold text-neon-cyan tracking-widest min-h-[28px]">—</div>
+        <div id="speedDisplay" class="font-mono text-xs text-slate-500">0.0 keys/sec</div>
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div id="previewBox" class="mt-4 rounded-xl bg-dark-900 border border-dark-500 overflow-hidden h-16 flex items-center justify-center">
+      <span class="text-xs text-slate-600">Select region to see preview</span>
+    </div>
+
+    <!-- History -->
+    <div id="historyDisplay" class="mt-3 flex flex-wrap gap-1.5 min-h-[28px]"></div>
+  </div>
+
+  <!-- ═══ STEP 1: REGION ═══ -->
+  <div class="mb-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="w-5 h-5 rounded-full bg-neon-blue/20 text-neon-blue text-xs font-bold flex items-center justify-center">1</span>
+      <span class="text-xs font-bold text-slate-500 tracking-wider">SELECT REGION</span>
+      <div class="flex-1 h-px bg-dark-500"></div>
+    </div>
+    <div class="glass rounded-xl p-4 flex items-center gap-3">
+      <button onclick="selectRegion()"
+        class="px-5 py-2.5 rounded-xl bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-bold text-sm
+               hover:bg-neon-blue/20 hover:border-neon-blue/50 transition-all active:scale-95">
+        Select Region (F6)
+      </button>
+      <button onclick="testCapture()"
+        class="px-4 py-2.5 rounded-xl bg-neon-orange/10 border border-neon-orange/30 text-neon-orange font-bold text-sm
+               hover:bg-neon-orange/20 transition-all active:scale-95">
+        Test
+      </button>
+      <div class="flex-1"></div>
+      <div id="regionInfo" class="font-mono text-xs text-neon-orange">Not set</div>
+    </div>
+  </div>
+
+  <!-- ═══ STEP 2: SETTINGS ═══ -->
+  <div class="mb-3">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="w-5 h-5 rounded-full bg-neon-purple/20 text-neon-purple text-xs font-bold flex items-center justify-center">2</span>
+      <span class="text-xs font-bold text-slate-500 tracking-wider">SETTINGS</span>
+      <div class="flex-1 h-px bg-dark-500"></div>
+    </div>
+    <div class="glass rounded-xl p-4 space-y-3">
+      <!-- Keys per lane -->
+      <div class="flex items-center justify-between">
+        <span class="text-sm text-slate-300">Keys per Lane</span>
+        <div class="flex items-center gap-3">
+          <input type="range" id="sNumKeys" min="1" max="12" value="6" class="w-36 range-blue" oninput="updateSlider(this,'vNumKeys')">
+          <span id="vNumKeys" class="font-mono text-sm text-neon-blue font-bold w-8 text-right">6</span>
+        </div>
+      </div>
+      <!-- Scan speed -->
+      <div class="flex items-center justify-between">
+        <span class="text-sm text-slate-300">Scan Speed</span>
+        <div class="flex items-center gap-3">
+          <input type="range" id="sScan" min="20" max="150" value="40" class="w-36 range-green" oninput="updateSlider(this,'vScan','ms')">
+          <span id="vScan" class="font-mono text-sm text-neon-green font-bold w-12 text-right">40ms</span>
+        </div>
+      </div>
+      <!-- Key delay -->
+      <div class="flex items-center justify-between">
+        <span class="text-sm text-slate-300">Key Delay</span>
+        <div class="flex items-center gap-3">
+          <input type="range" id="sKeyDelay" min="20" max="200" value="50" class="w-36 range-purple" oninput="updateSlider(this,'vKeyDelay','ms')">
+          <span id="vKeyDelay" class="font-mono text-sm text-neon-purple font-bold w-12 text-right">50ms</span>
+        </div>
+      </div>
+      <!-- Lane delay -->
+      <div class="flex items-center justify-between">
+        <span class="text-sm text-slate-300">Lane Delay</span>
+        <div class="flex items-center gap-3">
+          <input type="range" id="sLaneDelay" min="100" max="1000" value="300" step="50" class="w-36 range-orange" oninput="updateSlider(this,'vLaneDelay','ms')">
+          <span id="vLaneDelay" class="font-mono text-sm text-neon-orange font-bold w-12 text-right">300ms</span>
+        </div>
+      </div>
+      <!-- Always on top -->
+      <div class="flex items-center justify-between pt-1">
+        <span class="text-sm text-slate-300">Always on Top</span>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" id="chkOnTop" checked class="sr-only peer" onchange="toggleOnTop()">
+          <div class="w-9 h-5 bg-dark-500 rounded-full peer peer-checked:bg-neon-blue/30 peer-checked:border-neon-blue/50 border border-dark-500 transition-all
+                      after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:rounded-full after:h-4 after:w-4 after:transition-all
+                      peer-checked:after:translate-x-4 peer-checked:after:bg-neon-blue"></div>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ LOG ═══ -->
+  <div>
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-xs font-bold text-slate-500 tracking-wider">LOG</span>
+      <div class="flex-1 h-px bg-dark-500"></div>
+      <button onclick="clearLog()" class="text-xs text-slate-600 hover:text-slate-400 transition-colors">Clear</button>
+    </div>
+    <div id="logBox" class="glass rounded-xl p-3 h-36 overflow-y-auto scrollbar-hide font-mono text-xs space-y-0.5">
+      <div class="text-slate-600">Ready.</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="text-center mt-4 text-[10px] text-slate-700 tracking-wider">
+    F5 Start/Stop &nbsp;&middot;&nbsp; F6 Region &nbsp;&middot;&nbsp; ESC Stop
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════
+// STATE
+// ═══════════════════════════════════
+let isRunning = false;
+let keyHistory = [];
+
+// ═══════════════════════════════════
+// EEL CALLBACKS (Python → JS)
+// ═══════════════════════════════════
+eel.expose(onKeyPressed);
+function onKeyPressed(key, count, speed) {
+  document.getElementById('keyCount').textContent = count;
+  document.getElementById('speedDisplay').textContent = speed.toFixed(1) + ' keys/sec';
+
+  // History badges
+  keyHistory.push(key.toUpperCase());
+  if (keyHistory.length > 20) keyHistory.shift();
+  renderHistory();
+}
+
+eel.expose(onLaneDetected);
+function onLaneDetected(keys) {
+  document.getElementById('laneDisplay').textContent = keys;
+}
+
+eel.expose(onLog);
+function onLog(msg, type) {
+  const box = document.getElementById('logBox');
+  const div = document.createElement('div');
+  const time = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
+  const colors = {
+    ok: 'text-neon-green', err: 'text-neon-red', warn: 'text-neon-orange',
+    key: 'text-neon-cyan font-bold', lane: 'text-neon-purple font-bold',
+    dim: 'text-slate-600', default: 'text-slate-400'
+  };
+
+  div.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colors[type]||colors.default}">${msg}</span>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+
+  // Keep max 100 lines
+  while (box.children.length > 100) box.removeChild(box.firstChild);
+}
+
+eel.expose(onRegionSet);
+function onRegionSet(info) {
+  document.getElementById('regionInfo').textContent = info;
+  document.getElementById('regionInfo').className = 'font-mono text-xs text-neon-green';
+}
+
+eel.expose(onPreview);
+function onPreview(imgBase64) {
+  const box = document.getElementById('previewBox');
+  box.innerHTML = `<img src="data:image/png;base64,${imgBase64}" class="w-full h-full object-contain">`;
+}
+
+eel.expose(onTimerUpdate);
+function onTimerUpdate(text) {
+  document.getElementById('timer').textContent = text;
+}
+
+eel.expose(onStatusChange);
+function onStatusChange(running) {
+  isRunning = running;
+  const btn = document.getElementById('btnStart');
+  const badge = document.getElementById('statusBadge');
+
+  if (running) {
+    btn.textContent = 'STOP (F5)';
+    btn.className = btn.className.replace('from-emerald-500 to-green-400', 'from-red-500 to-rose-400').replace('btn-glow','');
+    badge.textContent = 'ACTIVE';
+    badge.className = 'px-3 py-1 rounded-full text-xs font-bold border border-neon-green/50 text-neon-green bg-neon-green/10 animate-pulse-slow';
+    document.getElementById('timer').className = 'font-mono text-sm text-neon-green';
+  } else {
+    btn.textContent = 'START (F5)';
+    btn.className = btn.className.replace('from-red-500 to-rose-400', 'from-emerald-500 to-green-400') + ' btn-glow';
+    badge.textContent = 'OFF';
+    badge.className = 'px-3 py-1 rounded-full text-xs font-bold border border-slate-600 text-slate-500';
+    document.getElementById('timer').className = 'font-mono text-sm text-slate-600';
+  }
+}
+
+// ═══════════════════════════════════
+// JS → EEL (call Python)
+// ═══════════════════════════════════
+async function toggleMacro() {
+  const numKeys = parseInt(document.getElementById('sNumKeys').value);
+  const scan = parseInt(document.getElementById('sScan').value);
+  const keyDelay = parseInt(document.getElementById('sKeyDelay').value);
+  const laneDelay = parseInt(document.getElementById('sLaneDelay').value);
+  await eel.toggle_macro(numKeys, scan, keyDelay, laneDelay)();
+}
+
+async function selectRegion() {
+  await eel.select_region()();
+}
+
+async function testCapture() {
+  const numKeys = parseInt(document.getElementById('sNumKeys').value);
+  await eel.test_capture(numKeys)();
+}
+
+async function toggleOnTop() {
+  const checked = document.getElementById('chkOnTop').checked;
+  await eel.set_on_top(checked)();
+}
+
+// ═══════════════════════════════════
+// UI Helpers
+// ═══════════════════════════════════
+function updateSlider(el, spanId, unit='') {
+  document.getElementById(spanId).textContent = el.value + unit;
+}
+
+function renderHistory() {
+  const box = document.getElementById('historyDisplay');
+  box.innerHTML = keyHistory.map(k =>
+    `<span class="key-badge inline-flex items-center justify-center w-7 h-7 rounded-lg
+            bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan font-mono text-xs font-bold">${k}</span>`
+  ).join('');
+  // Animate last
+  const last = box.lastElementChild;
+  if (last) { last.classList.add('active'); setTimeout(() => last.classList.remove('active'), 300); }
+}
+
+function clearLog() {
+  document.getElementById('logBox').innerHTML = '<div class="text-slate-600">Log cleared.</div>';
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (e.key === 'F5') { e.preventDefault(); toggleMacro(); }
+  if (e.key === 'F6') { e.preventDefault(); selectRegion(); }
+  if (e.key === 'Escape' && isRunning) { toggleMacro(); }
+});
+</script>
+</body>
+</html>

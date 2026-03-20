@@ -3,4 +3,5 @@ mss
 opencv-python
 numpy
 Pillow
+eel
 pyinstaller
