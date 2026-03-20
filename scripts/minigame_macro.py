@@ -280,210 +280,155 @@ class Btn(tk.Frame):
         self._label.config(bg=self._normal_bg, fg=c)
 
 class RegionPicker(tk.Toplevel):
-    """Region Picker ที่ใช้งานได้จริง - 3 วิธี:
-    1. Hotkey: กด F6 ที่มุมบนซ้าย แล้วกด F6 ที่มุมล่างขวา (ใช้กับเกมได้)
-    2. Live Tracker: เห็นพิกัดเมาส์ real-time
-    3. Manual: พิมพ์พิกัดเอง
-    """
+    """จับ screenshot ทั้งหน้าจอ แล้วลากเลือกบนภาพจริง - แบบ Snipping Tool"""
+
     def __init__(self, master, callback, capture):
         super().__init__(master)
         self.callback = callback
         self.capture = capture
-        self.title("Select Region")
-        self.geometry("460x520")
-        self.configure(bg=C["bg"])
+        self.sx = self.sy = 0
+        self.rect = None
+        self.dim_items = []
+        self.screenshot = None
+        self.photo = None
+
+        # จับ screenshot ก่อนเปิด overlay
+        self._take_screenshot()
+
+        # Fullscreen
+        self.overrideredirect(True)
         self.attributes("-topmost", True)
-        self.resizable(False, False)
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        self.geometry(f"{sw}x{sh}+0+0")
 
-        self.point1 = None  # (x, y)
-        self.point2 = None
-        self.tracking = True
-        self._hotkey_step = 0  # 0=waiting, 1=got point1, 2=done
-        self._hotkey_id = None
+        self.canvas = tk.Canvas(self, highlightthickness=0, cursor="cross")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        self._build()
-        self._track_mouse()
+        # วาง screenshot เป็นพื้นหลัง (เห็นหน้าจอจริงไม่มืด)
+        if self.photo:
+            self.canvas.create_image(0, 0, anchor="nw", image=self.photo, tags="bg")
 
-    def _build(self):
-        # Title
-        tk.Label(self, text="SELECT REGION", bg=C["bg"], fg=C["blue"],
-                 font=("Segoe UI", 16, "bold")).pack(pady=(14, 4))
-        tk.Label(self, text="เลือกบริเวณ ทั้งแถว ที่ตัวอักษรขึ้นในเกม", bg=C["bg"],
-                 fg=C["dim"], font=("Segoe UI", 10)).pack(pady=(0, 10))
+        # Dark overlay ทับบาง ๆ ให้เห็นว่าอยู่ในโหมดเลือก
+        self.canvas.create_rectangle(0, 0, sw, sh, fill="black", stipple="gray25", tags="dim")
 
-        # ── Live Mouse Position ──
-        pos_f = tk.Frame(self, bg=C["card"], highlightbackground=C["border"], highlightthickness=1)
-        pos_f.pack(fill=tk.X, padx=16, pady=(0, 8))
-        pos_i = tk.Frame(pos_f, bg=C["card"]); pos_i.pack(fill=tk.X, padx=12, pady=8)
+        # คำแนะนำ
+        self.canvas.create_rectangle(sw//2-220, 16, sw//2+220, 80,
+            fill="#000000", outline="#00ffaa", width=1, tags="hint")
+        self.canvas.create_text(sw//2, 36, text="ลากเมาส์เลือกบริเวณที่ตัวอักษรขึ้น",
+            fill="#00ffaa", font=("Segoe UI", 14, "bold"), tags="hint")
+        self.canvas.create_text(sw//2, 60, text="ลากให้ครอบทั้งแถว  |  ESC = ยกเลิก  |  กด Right-Click = พิมพ์พิกัดเอง",
+            fill="#cccccc", font=("Segoe UI", 10), tags="hint")
 
-        tk.Label(pos_i, text="Mouse Position:", bg=C["card"], fg=C["dim"],
-                 font=("Segoe UI", 9)).pack(anchor="w")
-        self.lbl_mouse = tk.Label(pos_i, text="X: -    Y: -", bg=C["card"], fg=C["cyan"],
-                                   font=("Consolas", 16, "bold"))
-        self.lbl_mouse.pack(anchor="w")
+        # พิกัดเมาส์ live
+        self.pos_text = self.canvas.create_text(sw//2, 95, text="",
+            fill="#00ffaa", font=("Consolas", 11, "bold"))
 
-        # ── Method 1: Hotkey (recommended) ──
-        m1 = tk.Frame(self, bg=C["card"], highlightbackground=C["green"], highlightthickness=1)
-        m1.pack(fill=tk.X, padx=16, pady=(0, 8))
-        m1i = tk.Frame(m1, bg=C["card"]); m1i.pack(fill=tk.X, padx=12, pady=10)
+        self.canvas.bind("<Motion>", self._motion)
+        self.canvas.bind("<ButtonPress-1>", self._press)
+        self.canvas.bind("<B1-Motion>", self._drag)
+        self.canvas.bind("<ButtonRelease-1>", self._release)
+        self.canvas.bind("<Button-3>", self._manual_popup)
+        self.bind("<Escape>", self._cancel)
 
-        tk.Label(m1i, text="วิธี 1: Hotkey (แนะนำ - ใช้กับเกมได้)", bg=C["card"],
-                 fg=C["green"], font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        tk.Label(m1i, text="1. เอาเมาส์ไปที่ มุมบนซ้าย ของแถวตัวอักษร → กดปุ่มข้างล่าง\n"
-                           "2. เอาเมาส์ไปที่ มุมล่างขวา ของแถวตัวอักษร → กดปุ่มอีกครั้ง",
-                 bg=C["card"], fg=C["dim"], font=("Segoe UI", 9), justify="left").pack(anchor="w", pady=(2, 6))
+        self.after(50, self.focus_force)
+        self.after(50, self.lift)
 
-        hk_row = tk.Frame(m1i, bg=C["card"]); hk_row.pack(fill=tk.X)
-        self.btn_hotkey = Btn(hk_row, text="Set Point 1 (มุมบนซ้าย)", color=C["green"],
-                               w=260, h=36, fs=10, cmd=self._hotkey_click)
-        self.btn_hotkey.pack(side=tk.LEFT)
-
-        self.lbl_points = tk.Label(hk_row, text="", bg=C["card"], fg=C["orange"],
-                                    font=("Consolas", 9))
-        self.lbl_points.pack(side=tk.LEFT, padx=8)
-
-        # ── Method 2: Manual ──
-        m2 = tk.Frame(self, bg=C["card"], highlightbackground=C["border"], highlightthickness=1)
-        m2.pack(fill=tk.X, padx=16, pady=(0, 8))
-        m2i = tk.Frame(m2, bg=C["card"]); m2i.pack(fill=tk.X, padx=12, pady=10)
-
-        tk.Label(m2i, text="วิธี 2: พิมพ์พิกัดเอง", bg=C["card"], fg=C["white"],
-                 font=("Segoe UI", 10, "bold")).pack(anchor="w")
-
-        fields_f = tk.Frame(m2i, bg=C["card"]); fields_f.pack(fill=tk.X, pady=(4, 0))
-        self.entries = {}
-        for name, default in [("X", "0"), ("Y", "0"), ("W", "400"), ("H", "60")]:
-            f = tk.Frame(fields_f, bg=C["card"]); f.pack(side=tk.LEFT, padx=(0, 8))
-            tk.Label(f, text=name, bg=C["card"], fg=C["dim"], font=("Segoe UI", 9)).pack()
-            e = tk.Entry(f, bg=C["input"], fg=C["cyan"], font=("Consolas", 11),
-                         relief="flat", width=6, justify="center")
-            e.insert(0, default)
-            e.pack()
-            self.entries[name] = e
-
-        Btn(fields_f, text="Apply", color=C["blue"], w=80, h=36, fs=10,
-            cmd=self._manual_apply).pack(side=tk.LEFT, padx=(8, 0), pady=(10, 0))
-
-        # ── Preview ──
-        pf = tk.Frame(self, bg=C["bg2"], highlightbackground=C["border"], highlightthickness=1, height=70)
-        pf.pack(fill=tk.X, padx=16, pady=(0, 8)); pf.pack_propagate(False)
-        self.lbl_preview = tk.Label(pf, bg=C["bg2"], text="Preview จะแสดงหลังเลือก region",
-                                     fg=C["dim2"], font=("Segoe UI", 8))
-        self.lbl_preview.pack(expand=True)
-
-        # ── Result ──
-        self.lbl_result = tk.Label(self, text="", bg=C["bg"], fg=C["green"],
-                                    font=("Consolas", 11, "bold"))
-        self.lbl_result.pack(pady=(0, 8))
-
-        # Close
-        Btn(self, text="Close", color=C["dim"], w=100, h=32, fs=10,
-            cmd=self.destroy).pack(pady=(0, 10))
-
-    def _track_mouse(self):
-        """Update ตำแหน่งเมาส์ real-time"""
-        if not self.tracking:
-            return
+    def _take_screenshot(self):
+        """จับภาพหน้าจอก่อนเปิด overlay"""
         try:
-            import pyautogui
-            x, y = pyautogui.position()
-            self.lbl_mouse.config(text=f"X: {x}    Y: {y}")
-        except:
-            try:
-                # Fallback: ใช้ tkinter winfo
-                x = self.winfo_pointerx()
-                y = self.winfo_pointery()
-                self.lbl_mouse.config(text=f"X: {x}    Y: {y}")
-            except:
-                pass
-        self.after(50, self._track_mouse)
-
-    def _get_mouse_pos(self):
-        """ดึงพิกัดเมาส์ปัจจุบัน"""
-        try:
-            import pyautogui
-            return pyautogui.position()
-        except:
-            return (self.winfo_pointerx(), self.winfo_pointery())
-
-    def _hotkey_click(self):
-        """กดปุ่มเพื่อจับพิกัด"""
-        if self._hotkey_step == 0:
-            # จับ point 1
-            x, y = self._get_mouse_pos()
-            self.point1 = (x, y)
-            self._hotkey_step = 1
-            self.lbl_points.config(text=f"P1: ({x},{y})")
-            self.btn_hotkey.set_text("Set Point 2 (มุมล่างขวา)")
-            self.btn_hotkey.set_color(C["orange"])
-
-        elif self._hotkey_step == 1:
-            # จับ point 2
-            x, y = self._get_mouse_pos()
-            self.point2 = (x, y)
-            self._hotkey_step = 2
-
-            # สร้าง region
-            x1, y1 = min(self.point1[0], x), min(self.point1[1], y)
-            x2, y2 = max(self.point1[0], x), max(self.point1[1], y)
-            w, h = x2 - x1, y2 - y1
-
-            if w > 5 and h > 5:
-                region = {"left": x1, "top": y1, "width": w, "height": h}
-                self._apply_region(region)
-            else:
-                self.lbl_result.config(text="พื้นที่เล็กเกินไป! ลองใหม่", fg=C["red"])
-
-            # Reset
-            self._hotkey_step = 0
-            self.btn_hotkey.set_text("Set Point 1 (มุมบนซ้าย)")
-            self.btn_hotkey.set_color(C["green"])
-
-    def _manual_apply(self):
-        """ใช้พิกัดจาก manual input"""
-        try:
-            x = int(self.entries["X"].get())
-            y = int(self.entries["Y"].get())
-            w = int(self.entries["W"].get())
-            h = int(self.entries["H"].get())
-            if w > 5 and h > 5:
-                self._apply_region({"left": x, "top": y, "width": w, "height": h})
-            else:
-                self.lbl_result.config(text="W/H ต้องมากกว่า 5!", fg=C["red"])
-        except:
-            self.lbl_result.config(text="ตัวเลขไม่ถูกต้อง!", fg=C["red"])
-
-    def _apply_region(self, region):
-        """บันทึก region + แสดง preview"""
-        self.lbl_result.config(
-            text=f"Region: {region['width']}x{region['height']}  @  ({region['left']}, {region['top']})",
-            fg=C["green"]
-        )
-
-        # Update manual fields
-        self.entries["X"].delete(0, tk.END); self.entries["X"].insert(0, str(region["left"]))
-        self.entries["Y"].delete(0, tk.END); self.entries["Y"].insert(0, str(region["top"]))
-        self.entries["W"].delete(0, tk.END); self.entries["W"].insert(0, str(region["width"]))
-        self.entries["H"].delete(0, tk.END); self.entries["H"].insert(0, str(region["height"]))
-
-        # Preview
-        try:
-            img = self.capture.grab_pil(region)
+            img = ImageGrab.grab()
             if img:
-                pw = min(420, region["width"])
-                ph = int(region["height"] * (pw / region["width"]))
-                img = img.resize((pw, max(ph, 20)), Image.LANCZOS)
-                photo = ImageTk.PhotoImage(img)
-                self.lbl_preview.config(image=photo, text="")
-                self.lbl_preview._photo = photo
+                self.screenshot = img
+                self.photo = ImageTk.PhotoImage(img)
         except:
             pass
 
-        self.callback(region)
+    def _motion(self, e):
+        self.canvas.itemconfig(self.pos_text, text=f"X: {e.x}   Y: {e.y}")
 
-    def destroy(self):
-        self.tracking = False
-        super().destroy()
+    def _press(self, e):
+        self.sx, self.sy = e.x, e.y
+        # ลบ rect เก่า
+        if self.rect:
+            self.canvas.delete(self.rect)
+        for item in self.dim_items:
+            self.canvas.delete(item)
+        self.dim_items.clear()
+        self.canvas.delete("hint")
+
+        self.rect = self.canvas.create_rectangle(
+            e.x, e.y, e.x, e.y,
+            outline="#00ffaa", width=2
+        )
+
+    def _drag(self, e):
+        self.canvas.coords(self.rect, self.sx, self.sy, e.x, e.y)
+
+        # Size label
+        w = abs(e.x - self.sx)
+        h = abs(e.y - self.sy)
+        self.canvas.delete("sz")
+        cx = (self.sx + e.x) // 2
+        cy = min(self.sy, e.y) - 20
+        self.canvas.create_text(cx, cy,
+            text=f"{w} x {h}",
+            fill="#00ffaa", font=("Consolas", 14, "bold"), tags="sz")
+
+    def _release(self, e):
+        x1 = min(self.sx, e.x)
+        y1 = min(self.sy, e.y)
+        x2 = max(self.sx, e.x)
+        y2 = max(self.sy, e.y)
+        w, h = x2 - x1, y2 - y1
+
+        if w > 5 and h > 5:
+            region = {"left": x1, "top": y1, "width": w, "height": h}
+            self.callback(region)
+            self.destroy()
+        # ถ้าเล็กเกินไป ให้ลากใหม่
+
+    def _cancel(self, e=None):
+        self.master.deiconify()
+        self.destroy()
+
+    def _manual_popup(self, e):
+        """คลิกขวา = popup ใส่พิกัดเอง"""
+        dlg = tk.Toplevel(self)
+        dlg.title("Manual Region")
+        dlg.geometry("320x200")
+        dlg.configure(bg=C["bg"])
+        dlg.attributes("-topmost", True)
+
+        tk.Label(dlg, text="พิมพ์พิกัดเอง:", bg=C["bg"], fg=C["white"],
+                 font=("Segoe UI", 12, "bold")).pack(pady=(12, 8))
+
+        entries = {}
+        ef = tk.Frame(dlg, bg=C["bg"]); ef.pack(pady=4)
+        for name, default in [("X", str(e.x)), ("Y", str(e.y)), ("W", "400"), ("H", "60")]:
+            f = tk.Frame(ef, bg=C["bg"]); f.pack(side=tk.LEFT, padx=4)
+            tk.Label(f, text=name, bg=C["bg"], fg=C["dim"], font=("Segoe UI", 9)).pack()
+            ent = tk.Entry(f, bg=C["input"], fg=C["cyan"], font=("Consolas", 12),
+                           relief="flat", width=6, justify="center")
+            ent.insert(0, default)
+            ent.pack()
+            entries[name] = ent
+
+        def apply():
+            try:
+                region = {
+                    "left": int(entries["X"].get()),
+                    "top": int(entries["Y"].get()),
+                    "width": int(entries["W"].get()),
+                    "height": int(entries["H"].get()),
+                }
+                if region["width"] > 5 and region["height"] > 5:
+                    self.callback(region)
+                    dlg.destroy()
+                    self.destroy()
+            except: pass
+
+        Btn(dlg, text="Apply", color=C["green"], w=120, h=36, fs=11, cmd=apply).pack(pady=12)
 
 
 # ============================================================
@@ -689,10 +634,14 @@ class App:
     # ══════════════════════════════════════════
     def pick_region(self):
         if self.running: self.log("Stop first!","err"); return
+        self.root.iconify()
+        time.sleep(0.3)  # รอให้หน้าต่าง minimize ก่อน screenshot
         def done(r):
             self.region=r; self._save_cfg(); self._update_region()
+            self.root.deiconify()
             self.log(f"Region: {r['width']}x{r['height']} @ ({r['left']},{r['top']})","ok")
-        RegionPicker(self.root, done, self.cap)
+        p = RegionPicker(self.root, done, self.cap)
+        p.protocol("WM_DELETE_WINDOW", lambda: (p.destroy(), self.root.deiconify()))
     def _update_region(self):
         if self.region:
             r=self.region
