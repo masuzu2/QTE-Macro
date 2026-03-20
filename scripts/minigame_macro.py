@@ -225,30 +225,59 @@ C = {
     "white":"#eaf0f6","dim":"#5a6a7e","dim2":"#3d4f63","input":"#0c1220",
 }
 
-class Btn(tk.Canvas):
+class Btn(tk.Frame):
+    """Simple styled button using tk.Frame + tk.Label (no Canvas issues)"""
     def __init__(self, parent, text="", color="#00d4ff", w=200, h=44, fs=12, cmd=None, **kw):
-        super().__init__(parent, width=w, height=h, bg=C["bg"], highlightthickness=0, **kw)
-        self._w,self._h,self.color,self.text,self.cmd,self.fs = w,h,color,text,cmd,fs
+        super().__init__(parent, bg=C["bg"], **kw)
+        self._color = color
+        self._cmd = cmd
         self._hover = False
-        self.bind("<Enter>", lambda e: self._set(True))
-        self.bind("<Leave>", lambda e: self._set(False))
-        self.bind("<Button-1>", lambda e: self.cmd() if self.cmd else None)
-        self._draw()
-    def _blend(self, c1, c2, t):
-        r1,g1,b1=[int(c1[i:i+2],16) for i in (1,3,5)]
-        r2,g2,b2=[int(c2[i:i+2],16) for i in (1,3,5)]
-        return f"#{int(r1+(r2-r1)*t):02x}{int(g1+(g2-g1)*t):02x}{int(b1+(b2-b1)*t):02x}"
-    def _draw(self):
-        self.delete("all"); w,h,r=self._w,self._h,10; a=0.4 if self._hover else 0.0
-        fill=self._blend(C["card"],self.color,0.15+a*0.15)
-        brd=self._blend(self.color,"#ffffff",a*0.3)
-        pts=[2+r,2,w-2-r,2,w-2,2,w-2,2+r,w-2,h-2-r,w-2,h-2,w-2-r,h-2,2+r,h-2,2,h-2,2,h-2-r,2,2+r,2,2]
-        self.create_polygon(pts,smooth=True,fill=fill,outline=brd,width=2)
-        tc=self._blend(self.color,"#ffffff",a*0.5)
-        self.create_text(w//2,h//2,text=self.text,fill=tc,font=("Segoe UI",self.fs,"bold"))
-    def _set(self,h): self._hover=h; self._draw()
-    def set_text(self,t): self.text=t; self._draw()
-    def set_color(self,c): self.color=c; self._draw()
+
+        r1,g1,b1 = [int(C["card"][i:i+2],16) for i in (1,3,5)]
+        r2,g2,b2 = [int(color[i:i+2],16) for i in (1,3,5)]
+        t = 0.2
+        self._normal_bg = f"#{int(r1+(r2-r1)*t):02x}{int(g1+(g2-g1)*t):02x}{int(b1+(b2-b1)*t):02x}"
+        t = 0.35
+        self._hover_bg = f"#{int(r1+(r2-r1)*t):02x}{int(g1+(g2-g1)*t):02x}{int(b1+(b2-b1)*t):02x}"
+
+        self._inner = tk.Frame(self, bg=self._normal_bg, highlightbackground=color,
+                                highlightthickness=1, cursor="hand2")
+        self._inner.pack(fill=tk.BOTH, expand=True)
+
+        self._label = tk.Label(self._inner, text=text, bg=self._normal_bg, fg=color,
+                                font=("Segoe UI", fs, "bold"),
+                                padx=max(w//8, 8), pady=max((h-30)//2, 4))
+        self._label.pack(expand=True)
+
+        for widget in [self._inner, self._label]:
+            widget.bind("<Enter>", self._on_enter)
+            widget.bind("<Leave>", self._on_leave)
+            widget.bind("<Button-1>", self._on_click)
+
+    def _on_enter(self, e):
+        self._hover = True
+        self._inner.config(bg=self._hover_bg)
+        self._label.config(bg=self._hover_bg, fg="#ffffff")
+
+    def _on_leave(self, e):
+        self._hover = False
+        self._inner.config(bg=self._normal_bg)
+        self._label.config(bg=self._normal_bg, fg=self._color)
+
+    def _on_click(self, e):
+        if self._cmd: self._cmd()
+
+    def set_text(self, t):
+        self._label.config(text=t)
+
+    def set_color(self, c):
+        self._color = c
+        r1,g1,b1 = [int(C["card"][i:i+2],16) for i in (1,3,5)]
+        r2,g2,b2 = [int(c[i:i+2],16) for i in (1,3,5)]
+        self._normal_bg = f"#{int(r1+(r2-r1)*0.2):02x}{int(g1+(g2-g1)*0.2):02x}{int(b1+(b2-b1)*0.2):02x}"
+        self._hover_bg = f"#{int(r1+(r2-r1)*0.35):02x}{int(g1+(g2-g1)*0.35):02x}{int(b1+(b2-b1)*0.35):02x}"
+        self._inner.config(bg=self._normal_bg, highlightbackground=c)
+        self._label.config(bg=self._normal_bg, fg=c)
 
 class RegionPicker(tk.Toplevel):
     """Region Picker ที่ใช้งานได้จริง - 3 วิธี:
