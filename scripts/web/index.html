@@ -135,6 +135,11 @@ tailwind.config={darkMode:'class',theme:{extend:{
       </div>
     </div>
 
+    <!-- Debug: slot status bar -->
+    <div class="px-5 pb-2">
+      <div id="debugSlots" class="flex gap-1 min-h-[32px]"></div>
+    </div>
+
     <!-- Key history -->
     <div class="px-5 pb-4">
       <div id="historyBox" class="flex flex-wrap gap-1.5 min-h-[28px]"></div>
@@ -197,11 +202,48 @@ tailwind.config={darkMode:'class',theme:{extend:{
         <span id="vLD" class="font-mono text-xs text-acc-orange font-semibold w-10 text-right">300ms</span>
       </div>
 
+      <!-- Key set -->
+      <div class="flex items-center gap-2 pt-1 pb-1">
+        <span class="text-xs text-slate-400 w-28">Key Set</span>
+        <div class="flex-1 flex items-center gap-1.5">
+          <button onclick="setKeys('qweasd')" class="kset-btn px-2 py-1 rounded bg-acc-cyan/10 border border-acc-cyan/30 text-acc-cyan text-[10px] font-bold hover:bg-acc-cyan/20 transition-all">Q W E A S D</button>
+          <button onclick="setKeys('qweasdzxc')" class="kset-btn px-2 py-1 rounded bg-base-600/50 border border-base-500/30 text-slate-400 text-[10px] font-bold hover:bg-base-500/50 transition-all">+ Z X C</button>
+          <button onclick="setKeys('qwertyasdfgh')" class="kset-btn px-2 py-1 rounded bg-base-600/50 border border-base-500/30 text-slate-400 text-[10px] font-bold hover:bg-base-500/50 transition-all">All</button>
+        </div>
+      </div>
+
       <div class="flex items-center justify-between pt-0.5">
         <span class="text-xs text-slate-400">Always on Top</span>
         <div id="togOnTop" class="toggle-track border border-base-500/50 on" onclick="toggleOT(this)">
           <div class="toggle-dot"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CAPTURE KEY (optional) ═══ -->
+  <div>
+    <div class="flex items-center gap-2 mb-1.5">
+      <div class="flex items-center justify-center w-4 h-4 rounded-md bg-acc-pink/10 text-acc-pink text-[9px] font-bold">3</div>
+      <span class="text-[10px] font-semibold text-slate-500 tracking-wider uppercase">Capture Game Key (optional)</span>
+      <div class="flex-1 h-px bg-base-600/20"></div>
+    </div>
+    <div class="glass rounded-xl px-4 py-3 space-y-2">
+      <div class="text-[11px] text-slate-600">ถ้า auto อ่านไม่ถูก → จับภาพตัวอักษรจากเกมเพิ่ม</div>
+      <div class="flex items-center gap-2">
+        <input id="captureKeyInput" type="text" maxlength="1" placeholder="key"
+          class="w-12 h-9 rounded-lg bg-base-900 border border-base-500/50 text-center text-acc-cyan font-mono text-lg font-bold
+                 focus:border-acc-cyan/50 focus:outline-none">
+        <button onclick="captureKey()"
+          class="px-4 py-2 rounded-lg bg-acc-purple/10 border border-acc-purple/20 text-acc-purple text-xs font-semibold
+                 hover:bg-acc-purple/15 transition-all active:scale-95">
+          Capture from Screen
+        </button>
+        <button onclick="resetRef()"
+          class="px-3 py-2 rounded-lg bg-acc-rose/10 border border-acc-rose/20 text-acc-rose text-xs font-semibold
+                 hover:bg-acc-rose/15 transition-all active:scale-95">
+          Reset Reference
+        </button>
       </div>
     </div>
   </div>
@@ -302,6 +344,30 @@ function onStatusChange(on) {
   }
 }
 
+// ── Debug display ──
+eel.expose(onDebugUpdate);
+function onDebugUpdate(debugText, activeSlot, numKeys) {
+  const box = document.getElementById('debugSlots');
+  document.getElementById('matchInfo').textContent = debugText;
+
+  // สร้าง visual slot indicators
+  let html = '';
+  for (let i = 0; i < numKeys; i++) {
+    let color, label, border;
+    if (activeSlot >= 0 && i < activeSlot) {
+      color = 'bg-emerald-500/20'; border = 'border-emerald-500/40'; label = '✓';
+    } else if (i === activeSlot) {
+      color = 'bg-cyan-500/20 animate-pulse'; border = 'border-cyan-400/60'; label = '●';
+    } else {
+      color = 'bg-base-600/30'; border = 'border-base-500/30'; label = (i+1);
+    }
+    html += `<div class="flex-1 h-7 rounded-md ${color} border ${border} flex items-center justify-center">
+      <span class="text-[10px] font-bold ${i===activeSlot?'text-cyan-300':i<activeSlot?'text-emerald-400':'text-slate-600'}">${label}</span>
+    </div>`;
+  }
+  box.innerHTML = html;
+}
+
 // ── JS → Python ──
 async function toggleMacro() {
   await eel.toggle_macro(
@@ -313,6 +379,21 @@ async function toggleMacro() {
 }
 async function selectRegion() { await eel.select_region()(); }
 async function testCapture() { await eel.test_capture(+document.getElementById('sNum').value)(); }
+async function setKeys(chars) {
+  await eel.set_keys(chars)();
+  // Highlight active button
+  document.querySelectorAll('.kset-btn').forEach(b => {
+    b.className = b.className.replace('bg-acc-cyan/10 border-acc-cyan/30 text-acc-cyan','bg-base-600/50 border-base-500/30 text-slate-400');
+  });
+  event.target.className = event.target.className.replace('bg-base-600/50 border-base-500/30 text-slate-400','bg-acc-cyan/10 border-acc-cyan/30 text-acc-cyan');
+}
+async function captureKey() {
+  const k = document.getElementById('captureKeyInput').value.trim().toLowerCase();
+  if (!k || k.length !== 1) { alert('พิมพ์ตัวอักษร 1 ตัว'); return; }
+  await eel.capture_game_key(k)();
+  document.getElementById('captureKeyInput').value = '';
+}
+async function resetRef() { await eel.reset_reference()(); }
 
 // ── UI helpers ──
 function uSlider(el, id, u='') { document.getElementById(id).textContent = el.value + u; }
