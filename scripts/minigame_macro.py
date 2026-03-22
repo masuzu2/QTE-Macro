@@ -102,8 +102,14 @@ def grab(r):
 VALID = set("qweasd")
 
 def read_all(gray, num_keys):
-    """อ่านทั้งแถวครั้งเดียว - เร็วที่สุด"""
+    """อ่านทั้งแถวครั้งเดียว - เร็ว + แม่น"""
     if gray is None or gray.size < 100: return None
+
+    # Sharpen + denoise ก่อน OCR (แก้แสงเกมเปลี่ยน + font เพี้ยน)
+    kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
+    gray = cv2.filter2D(gray, -1, kernel)
+    gray = cv2.GaussianBlur(gray, (3,3), 0)
+
     big = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
 
     for method in range(3):
@@ -122,7 +128,9 @@ def read_all(gray, num_keys):
             text = pytesseract.image_to_string(t,
                 config='--psm 7 -c tessedit_char_whitelist=QWEASDqweasd').strip().lower()
             chars = [c for c in text if c in VALID]
-            if len(chars) == num_keys: return chars
+            # Validate: ครบ + ทุกตัวต้องเป็น QWEASD จริง
+            if len(chars) == num_keys and all(c in VALID for c in chars):
+                return chars
         except: continue
     return None
 
@@ -416,15 +424,15 @@ class App:
                             if not self.running: break
                             press_key(key)
                             self.session_keys += 1
-                            time.sleep(kd + random.uniform(0.01, 0.04))
+                            time.sleep(kd + random.uniform(0.02, 0.08))
 
                         self.root.after(0, self._update_stats)
                         last_seq = seq
                         time.sleep(0.8 + random.uniform(0.1, 0.3))
                     else:
-                        time.sleep(0.03)
+                        time.sleep(0.04)
                 else:
-                    time.sleep(0.05)
+                    time.sleep(0.06)
 
             except Exception as e:
                 self.root.after(0,self.log,f"Error: {e}")
@@ -453,7 +461,7 @@ class App:
             img = img.resize((nw, nh), Image.NEAREST)
             photo = ImageTk.PhotoImage(img)
             self.preview.config(image=photo, text="")
-            self.preview._photo = photo
+            self.preview.image = photo
         except: pass
 
     def _preview_loop(self):
@@ -471,7 +479,7 @@ class App:
                     img = img.resize((nw,nh), Image.NEAREST)
                     photo = ImageTk.PhotoImage(img)
                     self.preview.config(image=photo, text="")
-                    self.preview._photo = photo
+                    self.preview.image = photo
             except: pass
         self.root.after(150, self._preview_loop)
 
