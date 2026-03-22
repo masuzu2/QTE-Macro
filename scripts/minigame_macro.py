@@ -340,33 +340,70 @@ class App:
         if self.running: self.log("Stop first!"); return
         self.root.iconify()
         time.sleep(0.4)
+
+        # จับ screenshot ด้วย mss (เข้าเกมได้ดีกว่า ImageGrab)
+        photo = None
         try:
-            ss = ImageGrab.grab()
-            photo = ImageTk.PhotoImage(ss)
-        except:
-            self.log("Screenshot failed!"); self.root.deiconify(); return
+            if cap_sct:
+                mon = cap_sct.monitors[0]
+                shot = cap_sct.grab(mon)
+                ss = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+                photo = ImageTk.PhotoImage(ss)
+        except: pass
+
+        # Fallback: ImageGrab
+        if photo is None:
+            try:
+                ss = ImageGrab.grab()
+                photo = ImageTk.PhotoImage(ss)
+            except: pass
 
         sel = tk.Toplevel(self.root)
-        sel.overrideredirect(True); sel.attributes("-topmost", True)
+        sel.overrideredirect(True)
+        sel.attributes("-topmost", True)
         sw, sh = sel.winfo_screenwidth(), sel.winfo_screenheight()
         sel.geometry(f"{sw}x{sh}+0+0")
-        c = tk.Canvas(sel, highlightthickness=0, cursor="cross")
-        c.pack(fill=tk.BOTH, expand=True)
-        c.create_image(0, 0, anchor="nw", image=photo)
-        c.create_rectangle(0, 0, sw, sh, fill="black", stipple="gray25")
-        c.create_text(sw//2, 30, text="ลากครอบแถวตัวอักษร (ไม่รวม counter)", fill="#00ffaa", font=("Segoe UI",13,"bold"))
-        c.create_text(sw//2, 55, text="ESC = ยกเลิก", fill="#aaa", font=("Segoe UI",10))
+
+        if photo:
+            # มี screenshot → แสดงเป็นพื้นหลัง + overlay บางๆ
+            c = tk.Canvas(sel, highlightthickness=0, cursor="cross")
+            c.pack(fill=tk.BOTH, expand=True)
+            c.create_image(0, 0, anchor="nw", image=photo)
+            # overlay บางมาก ให้เห็นเกมชัด
+            c.create_rectangle(0, 0, sw, sh, fill="black", stipple="gray12")
+        else:
+            # ไม่มี screenshot → ใช้ transparent overlay แทน
+            sel.attributes("-alpha", 0.15)
+            sel.configure(bg="black")
+            c = tk.Canvas(sel, bg="black", highlightthickness=0, cursor="cross")
+            c.pack(fill=tk.BOTH, expand=True)
+
+        # กรอบคำแนะนำ (สีเข้มให้อ่านชัด)
+        c.create_rectangle(sw//2-200, 10, sw//2+200, 65, fill="#000000", outline="#00ffaa", width=1)
+        c.create_text(sw//2, 28, text="ลากครอบแถวตัวอักษร (ไม่รวม counter)",
+            fill="#00ffaa", font=("Segoe UI", 13, "bold"))
+        c.create_text(sw//2, 50, text="ESC = ยกเลิก", fill="#cccccc", font=("Segoe UI", 10))
+
+        # แสดงพิกัดเมาส์
+        pos_txt = c.create_text(sw//2, 80, text="", fill="#00ffaa", font=("Consolas", 11))
 
         st = {"sx":0, "sy":0, "r":None}
+
+        def _motion(e):
+            c.itemconfig(pos_txt, text=f"X: {e.x}   Y: {e.y}")
+
         def _p(e):
-            st["sx"],st["sy"] = e.x,e.y
+            st["sx"],st["sy"] = e.x, e.y
             if st["r"]: c.delete(st["r"])
-            st["r"] = c.create_rectangle(e.x,e.y,e.x,e.y, outline="#00ffaa", width=2)
+            st["r"] = c.create_rectangle(e.x, e.y, e.x, e.y, outline="#00ffaa", width=2)
+
         def _d(e):
             c.coords(st["r"], st["sx"], st["sy"], e.x, e.y)
             c.delete("sz")
+            w, h = abs(e.x-st["sx"]), abs(e.y-st["sy"])
             c.create_text((st["sx"]+e.x)//2, min(st["sy"],e.y)-14,
-                text=f"{abs(e.x-st['sx'])}x{abs(e.y-st['sy'])}", fill="#00ffaa", font=("Consolas",12,"bold"), tags="sz")
+                text=f"{w} x {h}", fill="#00ffaa", font=("Consolas", 12, "bold"), tags="sz")
+
         def _r(e):
             global region
             x1,y1 = min(st["sx"],e.x), min(st["sy"],e.y)
@@ -376,9 +413,13 @@ class App:
                 save_cfg(); self._update_region_label()
                 self.log(f"Region: {x2-x1}x{y2-y1} @ ({x1},{y1})")
             sel.destroy(); self.root.deiconify()
+
         def _esc(e): sel.destroy(); self.root.deiconify()
 
-        c.bind("<ButtonPress-1>",_p); c.bind("<B1-Motion>",_d); c.bind("<ButtonRelease-1>",_r)
+        c.bind("<Motion>", _motion)
+        c.bind("<ButtonPress-1>", _p)
+        c.bind("<B1-Motion>", _d)
+        c.bind("<ButtonRelease-1>", _r)
         sel.bind("<Escape>", _esc)
         sel.after(50, sel.focus_force)
 
