@@ -1,15 +1,28 @@
 """
-QTE Macro - Final FiveM Edition
-OCR ทั้งแถวครั้งเดียว + Visual Debug + All Key Methods
-จอ 1920x1080 DX11 Borderless
+AutoFish by Herlove
+FiveM Fishing Macro - OCR + SendInput Scancode
 """
 
-import time, sys, os, json, threading, ctypes, random, re
+import time, sys, os, json, threading, ctypes, random
 import tkinter as tk
 from tkinter import messagebox
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# ═══ บังคับ Run as Administrator ═══
+def is_admin():
+    if sys.platform != 'win32': return True
+    try: return ctypes.windll.shell32.IsUserAnAdmin()
+    except: return False
+
+if not is_admin() and sys.platform == 'win32':
+    try:
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable,
+            f'"{os.path.abspath(__file__)}"', None, 1)
+    except: pass
+    sys.exit()
+
+# ═══ Libs ═══
 try:
     import keyboard as kb
     import mss
@@ -18,158 +31,113 @@ try:
     from PIL import Image, ImageTk, ImageGrab
     import pytesseract
 except ImportError as e:
-    print(f"pip install keyboard mss opencv-python numpy Pillow pytesseract")
+    root = tk.Tk(); root.withdraw()
+    messagebox.showerror("AutoFish",
+        f"Missing: {e}\n\npip install keyboard mss opencv-python numpy Pillow pytesseract")
     sys.exit(1)
 
 for p in [r"C:\Program Files\Tesseract-OCR\tesseract.exe",
           r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"]:
     if os.path.exists(p): pytesseract.pytesseract.tesseract_cmd = p; break
 
-# ═══ Key Press (Scancode Hardware - ทะลุ FiveM/DirectX 100%) ═══
+# ═══ SendInput Scancode (Hardware level - FiveM) ═══
 SCAN = {'q':0x10,'w':0x11,'e':0x12,'r':0x13,'a':0x1E,'s':0x1F,'d':0x20,'f':0x21,'space':0x39}
 
+PUL = ctypes.POINTER(ctypes.c_ulong) if sys.platform == 'win32' else None
+if sys.platform == 'win32':
+    class KEYBDINPUT(ctypes.Structure):
+        _fields_=[("wVk",ctypes.c_ushort),("wScan",ctypes.c_ushort),
+                  ("dwFlags",ctypes.c_ulong),("time",ctypes.c_ulong),("dwExtraInfo",PUL)]
+    class HARDWAREINPUT(ctypes.Structure):
+        _fields_=[("uMsg",ctypes.c_ulong),("wParamL",ctypes.c_short),("wParamH",ctypes.c_ushort)]
+    class MOUSEINPUT(ctypes.Structure):
+        _fields_=[("dx",ctypes.c_long),("dy",ctypes.c_long),("mouseData",ctypes.c_ulong),
+                  ("dwFlags",ctypes.c_ulong),("time",ctypes.c_ulong),("dwExtraInfo",PUL)]
+    class INPUT_UNION(ctypes.Union):
+        _fields_=[("ki",KEYBDINPUT),("mi",MOUSEINPUT),("hi",HARDWAREINPUT)]
+    class INPUT(ctypes.Structure):
+        _fields_=[("type",ctypes.c_ulong),("ii",INPUT_UNION)]
+
 def press_key(key):
-    key = key.lower()
-    sc = SCAN.get(key)
+    sc = SCAN.get(key.lower())
     if not sc: return False
+    if sys.platform != 'win32': return False
+    try:
+        extra = ctypes.c_ulong(0)
+        ii = INPUT_UNION(); ii.ki = KEYBDINPUT(0, sc, 0x0008, 0, ctypes.pointer(extra))
+        x = INPUT(1, ii)
+        ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+        time.sleep(0.05)
+        ii2 = INPUT_UNION(); ii2.ki = KEYBDINPUT(0, sc, 0x0008|0x0002, 0, ctypes.pointer(extra))
+        x2 = INPUT(1, ii2)
+        ctypes.windll.user32.SendInput(1, ctypes.pointer(x2), ctypes.sizeof(x2))
+        return True
+    except: return False
 
-    if sys.platform == 'win32':
-        try:
-            PUL = ctypes.POINTER(ctypes.c_ulong)
-            class KEYBDINPUT(ctypes.Structure):
-                _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort),
-                            ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong),
-                            ("dwExtraInfo", PUL)]
-            class HARDWAREINPUT(ctypes.Structure):
-                _fields_ = [("uMsg", ctypes.c_ulong), ("wParamL", ctypes.c_short), ("wParamH", ctypes.c_ushort)]
-            class MOUSEINPUT(ctypes.Structure):
-                _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long), ("mouseData", ctypes.c_ulong),
-                            ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
-            class INPUT_UNION(ctypes.Union):
-                _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT), ("hi", HARDWAREINPUT)]
-            class INPUT(ctypes.Structure):
-                _fields_ = [("type", ctypes.c_ulong), ("ii", INPUT_UNION)]
+# ═══ Fast Capture (cache mss) ═══
+_sct = None
+def get_sct():
+    global _sct
+    if _sct is None:
+        try: _sct = mss.mss()
+        except: pass
+    return _sct
 
-            extra = ctypes.c_ulong(0)
-
-            # Key Down (Scancode only, no VK)
-            ii_down = INPUT_UNION()
-            ii_down.ki = KEYBDINPUT(0, sc, 0x0008, 0, ctypes.pointer(extra))
-            inp_down = INPUT(ctypes.c_ulong(1), ii_down)
-            ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_down), ctypes.sizeof(inp_down))
-
-            # ค้างปุ่ม 50ms (สำคัญ! ถ้าไม่มี FiveM จะไม่เห็น)
-            time.sleep(0.05)
-
-            # Key Up
-            ii_up = INPUT_UNION()
-            ii_up.ki = KEYBDINPUT(0, sc, 0x0008 | 0x0002, 0, ctypes.pointer(extra))
-            inp_up = INPUT(ctypes.c_ulong(1), ii_up)
-            ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_up), ctypes.sizeof(inp_up))
-
-            return True
-        except:
-            pass
-    return False
-
-# ═══ Capture ═══
 def grab(r):
     left,top,w,h = int(r["left"]),int(r["top"]),int(r["width"]),int(r["height"])
-    try:
-        with mss.mss() as s:
+    s = get_sct()
+    if s:
+        try:
             arr = np.array(s.grab({"left":left,"top":top,"width":w,"height":h}))
             if arr.size > 0: return cv2.cvtColor(arr, cv2.COLOR_BGRA2BGR)
-    except: pass
+        except:
+            pass
     try:
         img = ImageGrab.grab(bbox=(left,top,left+w,top+h))
         if img: return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
     except: pass
     return None
 
-# ═══ OCR - อ่านทั้งแถวครั้งเดียว ═══
+# ═══ Fast OCR ═══
 VALID = set("qweasd")
 
 def read_all(gray, num_keys):
-    """อ่านทั้ง lane ครั้งเดียวด้วย OCR แล้วแยกทีละตัว
-    return: list of chars เช่น ['d','s','w','a','w'] หรือ None ถ้าอ่านไม่ครบ"""
+    """อ่านทั้งแถวครั้งเดียว - เร็วที่สุด"""
     if gray is None or gray.size < 100: return None
+    big = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
 
-    # ขยาย 3 เท่า
-    big = cv2.resize(gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-
-    best_result = None
-
-    # ลองหลาย threshold
-    for method in range(5):
+    for method in range(3):
         try:
             if method == 0:
-                _, t = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                _, t = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
             elif method == 1:
-                _, t = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                _, t = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
                 t = cv2.bitwise_not(t)
-            elif method == 2:
+            else:
                 _, t = cv2.threshold(big, 180, 255, cv2.THRESH_BINARY)
-            elif method == 3:
-                _, t = cv2.threshold(big, 150, 255, cv2.THRESH_BINARY)
-            elif method == 4:
-                c = cv2.convertScaleAbs(big, alpha=2.0, beta=-50)
-                _, t = cv2.threshold(c, 127, 255, cv2.THRESH_BINARY)
 
-            # ให้ตัวอักษรเป็นสีดำ พื้นเป็นสีขาว (Tesseract ชอบแบบนี้)
-            if np.count_nonzero(t) > t.size / 2:
+            if np.count_nonzero(t) > t.size // 2:
                 t = cv2.bitwise_not(t)
 
-            # OCR ทั้งแถว (PSM 7 = single text line)
-            config = '--psm 7 -c tessedit_char_whitelist=QWEASDqweasd'
-            text = pytesseract.image_to_string(t, config=config).strip().lower()
-
-            # กรองเอาเฉพาะตัวที่ valid
+            text = pytesseract.image_to_string(t,
+                config='--psm 7 -c tessedit_char_whitelist=QWEASDqweasd').strip().lower()
             chars = [c for c in text if c in VALID]
-
-            if len(chars) == num_keys:
-                return chars  # เจอครบ!
-
-            # เก็บผลที่ได้มากที่สุดไว้
-            if best_result is None or len(chars) > len(best_result):
-                best_result = chars
-
+            if len(chars) == num_keys: return chars
         except: continue
+    return None
 
-    # ถ้าไม่เจอครบ ลอง PSM 6 (block of text)
-    try:
-        _, t = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        if np.count_nonzero(t) > t.size / 2: t = cv2.bitwise_not(t)
-        config = '--psm 6 -c tessedit_char_whitelist=QWEASDqweasd'
-        text = pytesseract.image_to_string(t, config=config).strip().lower()
-        chars = [c for c in text if c in VALID]
-        if len(chars) == num_keys: return chars
-        if best_result is None or len(chars) > len(best_result):
-            best_result = chars
-    except: pass
-
-    return best_result if best_result and len(best_result) == num_keys else None
-
-def make_debug_image(frame, keys_found, num_keys):
-    """สร้างภาพ debug มี box + ตัวอักษรที่อ่านได้"""
-    debug = frame.copy()
-    h, w = debug.shape[:2]
-    sw = w // num_keys
-
-    for i in range(num_keys):
-        x1, x2 = i * sw, min((i+1) * sw, w)
-
-        if keys_found and i < len(keys_found) and keys_found[i]:
-            # เจอตัวอักษร → กรอบเขียว
-            cv2.rectangle(debug, (x1+2, 2), (x2-2, h-2), (0, 255, 0), 2)
-            cv2.putText(debug, keys_found[i].upper(), (x1+8, 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+def make_debug(frame, keys, num):
+    d = frame.copy()
+    h,w = d.shape[:2]; sw = w // num
+    for i in range(num):
+        x1, x2 = i*sw, min((i+1)*sw, w)
+        if keys and i < len(keys) and keys[i]:
+            cv2.rectangle(d, (x1+1,1), (x2-1,h-1), (0,255,0), 2)
+            cv2.putText(d, keys[i].upper(), (x1+5,22),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
         else:
-            # ไม่เจอ → กรอบแดง
-            cv2.rectangle(debug, (x1+2, 2), (x2-2, h-2), (0, 0, 255), 1)
-            cv2.putText(debug, "?", (x1+8, 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
-    return debug
+            cv2.rectangle(d, (x1+1,1), (x2-1,h-1), (0,0,255), 1)
+    return d
 
 # ═══ Config ═══
 CFG = os.path.join(SCRIPT_DIR, "config.json")
@@ -186,85 +154,161 @@ def save_cfg(**kw):
     except: pass
 load_cfg()
 
+# ═══ Colors ═══
+BG = "#0b1120"
+CARD = "#111d35"
+ACCENT = "#38bdf8"
+GREEN = "#22c55e"
+RED = "#ef4444"
+DIM = "#475569"
+WHITE = "#f1f5f9"
+
 # ═══ App ═══
 class App:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("QTE Macro")
-        self.root.geometry("500x600")
-        self.root.configure(bg="#0a0e17")
+        self.root.title("AutoFish by Herlove")
+        self.root.geometry("480x660")
+        self.root.configure(bg=BG)
         self.root.resizable(False, False)
         self.root.attributes("-topmost", True)
+
+        # icon
+        try:
+            ico = os.path.join(SCRIPT_DIR, "logo.png")
+            if os.path.exists(ico):
+                img = ImageTk.PhotoImage(Image.open(ico).resize((32,32)))
+                self.root.iconphoto(True, img)
+                self._ico = img
+        except: pass
+
         self.running = False
         self.session_keys = 0
         self.session_start = 0
         self.debug_img = None
+        self.fish_count = 0
         self.num_keys = tk.IntVar(value=load_cfg().get("num_keys", 5))
         self.key_delay = tk.IntVar(value=60)
+
         self._build()
         self._preview_loop()
         self.root.protocol("WM_DELETE_WINDOW", self._quit)
 
     def _build(self):
-        BG,CARD,DIM = "#0a0e17","#111a2b","#5a6a7e"
-
-        tk.Label(self.root,text="QTE Macro",bg=BG,fg="#22d3ee",font=("Segoe UI",16,"bold")).pack(pady=(8,0))
-        tk.Label(self.root,text="OCR + Visual Debug | 1920x1080 DX11",bg=BG,fg=DIM,font=("Segoe UI",8)).pack()
-
-        # Preview ใหญ่ขึ้น
-        self.preview = tk.Label(self.root, bg="#0c1220", text="F6 เลือก region",
-                                 fg=DIM, font=("Segoe UI",9))
-        self.preview.pack(fill=tk.X, padx=14, pady=(8,4), ipady=30)
-
-        self.lbl_st = tk.Label(self.root,text="OFF",bg=BG,fg=DIM,font=("Consolas",10,"bold"))
-        self.lbl_st.pack()
-
-        self.btn = tk.Button(self.root,text="  START (F5)  ",bg="#10b981",fg="white",
-            font=("Segoe UI",14,"bold"),relief="flat",pady=6,command=self.toggle)
-        self.btn.pack(fill=tk.X,padx=14,pady=4)
-
-        f1 = tk.Frame(self.root,bg=CARD); f1.pack(fill=tk.X,padx=14,pady=2)
-        self.lbl_cnt = tk.Label(f1,text="0",bg=CARD,fg="#10b981",font=("Consolas",24,"bold"))
-        self.lbl_cnt.pack(side=tk.LEFT,padx=10,pady=4)
-        self.lbl_info = tk.Label(f1,text="",bg=CARD,fg=DIM,font=("Consolas",10))
-        self.lbl_info.pack(side=tk.LEFT)
-
-        f2 = tk.Frame(self.root,bg=CARD); f2.pack(fill=tk.X,padx=14,pady=2)
-        tk.Button(f2,text="Select (F6)",bg="#1e3a5f",fg="#22d3ee",font=("Segoe UI",9,"bold"),
-            relief="flat",padx=8,pady=3,command=self.pick_region).pack(side=tk.LEFT,padx=4,pady=4)
-        tk.Button(f2,text="Test Read",bg="#1a3320",fg="#22ff88",font=("Segoe UI",9,"bold"),
-            relief="flat",padx=8,pady=3,command=self.test_read).pack(side=tk.LEFT,padx=2,pady=4)
-        tk.Button(f2,text="Test Press",bg="#3b1764",fg="#a78bfa",font=("Segoe UI",9,"bold"),
-            relief="flat",padx=8,pady=3,command=self.test_press).pack(side=tk.LEFT,padx=2,pady=4)
-        self.lbl_reg = tk.Label(f2,text="not set",bg=CARD,fg="#f97316",font=("Consolas",9))
-        self.lbl_reg.pack(side=tk.RIGHT,padx=8)
-
-        sf = tk.Frame(self.root,bg=CARD); sf.pack(fill=tk.X,padx=14,pady=2)
-        self._sl(sf,"Keys/Lane",self.num_keys,2,10)
-        self._sl(sf,"Key Delay ms",self.key_delay,30,200)
-
-        self.log_box = tk.Text(self.root,bg="#070c18",fg="#22ff88",font=("Consolas",9),
-            height=7,relief="flat",wrap=tk.WORD,state=tk.DISABLED,padx=8,pady=4)
-        self.log_box.pack(fill=tk.BOTH,expand=True,padx=14,pady=(4,10))
-
-        self.root.bind("<F5>",lambda e:self.toggle())
-        self.root.bind("<F6>",lambda e:self.pick_region())
+        # ═══ Header with logo ═══
+        hdr = tk.Frame(self.root, bg=BG)
+        hdr.pack(fill=tk.X, padx=16, pady=(10,0))
 
         try:
-            v = pytesseract.get_tesseract_version()
-            self.log(f"Tesseract {v} OK")
-        except:
-            self.log("ERROR: ติดตั้ง Tesseract ก่อน!")
+            logo_path = os.path.join(SCRIPT_DIR, "logo.png")
+            if os.path.exists(logo_path):
+                logo_img = Image.open(logo_path).resize((48, 48), Image.LANCZOS)
+                self._logo = ImageTk.PhotoImage(logo_img)
+                tk.Label(hdr, image=self._logo, bg=BG).pack(side=tk.LEFT, padx=(0,10))
+        except: pass
 
-    def _sl(self,p,label,var,lo,hi):
-        f = tk.Frame(p,bg="#111a2b"); f.pack(fill=tk.X,padx=8,pady=1)
-        tk.Label(f,text=label+":",bg="#111a2b",fg="#eee",font=("Segoe UI",9)).pack(side=tk.LEFT)
-        vl = tk.Label(f,text=str(var.get()),bg="#111a2b",fg="#22d3ee",font=("Consolas",9,"bold"),width=5)
+        title_f = tk.Frame(hdr, bg=BG)
+        title_f.pack(side=tk.LEFT)
+        tk.Label(title_f, text="AutoFish", bg=BG, fg=ACCENT,
+                 font=("Segoe UI", 20, "bold")).pack(anchor="w")
+        tk.Label(title_f, text="by Herlove  |  FiveM Fishing Macro", bg=BG, fg=DIM,
+                 font=("Segoe UI", 9)).pack(anchor="w")
+
+        self.lbl_st = tk.Label(hdr, text="OFF", bg=BG, fg=DIM,
+                                font=("Consolas", 11, "bold"))
+        self.lbl_st.pack(side=tk.RIGHT)
+
+        # Gradient line
+        line = tk.Canvas(self.root, bg=BG, height=3, highlightthickness=0)
+        line.pack(fill=tk.X, padx=16, pady=(8,0))
+        for i in range(448):
+            t = i/448
+            r = int(56+(34-56)*t); g = int(189+(211-189)*t); b = int(248+(238-248)*t)
+            line.create_line(i+16, 0, i+16, 3, fill=f"#{r:02x}{g:02x}{b:02x}")
+
+        # ═══ Preview (ใหญ่) ═══
+        self.preview = tk.Label(self.root, bg="#060d1a", text="F6 เลือก Region",
+                                 fg=DIM, font=("Segoe UI", 9), relief="flat")
+        self.preview.pack(fill=tk.X, padx=16, pady=(10,6), ipady=35)
+
+        # ═══ START ═══
+        self.btn = tk.Button(self.root, text="START  (F5)", bg=GREEN, fg="white",
+            font=("Segoe UI", 15, "bold"), relief="flat", pady=8, cursor="hand2",
+            activebackground="#16a34a", command=self.toggle)
+        self.btn.pack(fill=tk.X, padx=16, pady=(2,6))
+
+        # ═══ Stats ═══
+        sf = tk.Frame(self.root, bg=CARD, highlightbackground="#1e3a5f", highlightthickness=1)
+        sf.pack(fill=tk.X, padx=16, pady=(0,6))
+        si = tk.Frame(sf, bg=CARD); si.pack(fill=tk.X, padx=12, pady=8)
+
+        self.lbl_cnt = tk.Label(si, text="0", bg=CARD, fg=GREEN, font=("Consolas",28,"bold"))
+        self.lbl_cnt.pack(side=tk.LEFT)
+        tk.Label(si, text=" keys", bg=CARD, fg=DIM, font=("Segoe UI",10)).pack(side=tk.LEFT)
+
+        self.lbl_fish = tk.Label(si, text="", bg=CARD, fg=ACCENT, font=("Consolas",11,"bold"))
+        self.lbl_fish.pack(side=tk.RIGHT, padx=8)
+        self.lbl_spd = tk.Label(si, text="", bg=CARD, fg=DIM, font=("Consolas",10))
+        self.lbl_spd.pack(side=tk.RIGHT)
+
+        # ═══ Region + Test ═══
+        rf = tk.Frame(self.root, bg=CARD, highlightbackground="#1e3a5f", highlightthickness=1)
+        rf.pack(fill=tk.X, padx=16, pady=(0,6))
+        ri = tk.Frame(rf, bg=CARD); ri.pack(fill=tk.X, padx=8, pady=6)
+
+        tk.Button(ri, text="Select Region (F6)", bg="#1e3a5f", fg=ACCENT,
+            font=("Segoe UI",9,"bold"), relief="flat", padx=10, pady=3,
+            cursor="hand2", command=self.pick_region).pack(side=tk.LEFT, padx=2)
+        tk.Button(ri, text="Test Read", bg="#14332a", fg=GREEN,
+            font=("Segoe UI",9,"bold"), relief="flat", padx=8, pady=3,
+            cursor="hand2", command=self.test_read).pack(side=tk.LEFT, padx=2)
+        tk.Button(ri, text="Test Key", bg="#2d1b4e", fg="#a78bfa",
+            font=("Segoe UI",9,"bold"), relief="flat", padx=8, pady=3,
+            cursor="hand2", command=self.test_press).pack(side=tk.LEFT, padx=2)
+
+        self.lbl_reg = tk.Label(ri, text="not set", bg=CARD, fg="#f97316", font=("Consolas",9))
+        self.lbl_reg.pack(side=tk.RIGHT, padx=6)
+
+        # ═══ Settings ═══
+        stf = tk.Frame(self.root, bg=CARD, highlightbackground="#1e3a5f", highlightthickness=1)
+        stf.pack(fill=tk.X, padx=16, pady=(0,6))
+        self._sl(stf, "Keys / Lane", self.num_keys, 2, 10, ACCENT)
+        self._sl(stf, "Key Delay (ms)", self.key_delay, 30, 200, GREEN)
+
+        # ═══ Log ═══
+        tk.Label(self.root, text="LOG", bg=BG, fg=DIM, font=("Segoe UI",8,"bold"),
+                 anchor="w").pack(fill=tk.X, padx=18, pady=(4,1))
+        self.log_box = tk.Text(self.root, bg="#060d1a", fg=GREEN, font=("Consolas",9),
+            height=6, relief="flat", wrap=tk.WORD, state=tk.DISABLED, padx=8, pady=4)
+        self.log_box.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0,10))
+
+        # Footer
+        tk.Label(self.root, text="F5 Start/Stop  |  F6 Region  |  Run as Admin",
+                 bg=BG, fg="#1e293b", font=("Segoe UI",7)).pack(pady=(0,6))
+
+        self.root.bind("<F5>", lambda e: self.toggle())
+        self.root.bind("<F6>", lambda e: self.pick_region())
+
+        # Status
+        self.log("AutoFish by Herlove")
+        self.log(f"Admin: {'Yes' if is_admin() else 'No!'}")
+        try:
+            v = pytesseract.get_tesseract_version()
+            self.log(f"Tesseract {v}")
+        except:
+            self.log("ERROR: Tesseract not found!")
+
+    def _sl(self, p, label, var, lo, hi, color):
+        f = tk.Frame(p, bg=CARD); f.pack(fill=tk.X, padx=10, pady=2)
+        tk.Label(f, text=label, bg=CARD, fg=WHITE, font=("Segoe UI",9)).pack(side=tk.LEFT)
+        vl = tk.Label(f, text=str(var.get()), bg=CARD, fg=color, font=("Consolas",10,"bold"), width=4)
         vl.pack(side=tk.RIGHT)
-        tk.Scale(f,from_=lo,to=hi,orient=tk.HORIZONTAL,variable=var,bg="#111a2b",fg="#111a2b",
-            troughcolor="#0a0e17",highlightthickness=0,showvalue=False,length=140,sliderlength=14,
+        tk.Scale(f, from_=lo, to=hi, orient=tk.HORIZONTAL, variable=var, bg=CARD, fg=CARD,
+            troughcolor=BG, highlightthickness=0, showvalue=False, length=130, sliderlength=14,
+            activebackground=color,
             command=lambda v,l=vl:l.config(text=str(int(float(v))))).pack(side=tk.RIGHT,padx=4)
 
+    # ═══ Region ═══
     def pick_region(self):
         global region
         if self.running: self.log("Stop first!"); return
@@ -275,26 +319,26 @@ class App:
         sel.geometry(f"{sw}x{sh}+0+0"); sel.configure(bg="black")
         c = tk.Canvas(sel,bg="black",highlightthickness=0,cursor="cross")
         c.pack(fill=tk.BOTH,expand=True)
-        c.create_rectangle(sw//2-220,15,sw//2+220,80,fill="black",outline="#00ff88",width=2)
-        c.create_text(sw//2,33,text="ลากครอบแค่ตัวอักษร ไม่รวม counter/วงกลม",fill="#00ff88",font=("Segoe UI",13,"bold"))
-        c.create_text(sw//2,55,text="ลากให้พอดีกรอบดำของตัวอักษร | ESC ยกเลิก",fill="#aaa",font=("Segoe UI",10))
-        pos = c.create_text(sw//2,95,text="",fill="#00ff88",font=("Consolas",12,"bold"))
+        c.create_rectangle(sw//2-220,15,sw//2+220,80,fill="black",outline="#38bdf8",width=2)
+        c.create_text(sw//2,33,text="ลากครอบแค่ตัวอักษร (ไม่รวม counter)",fill="#38bdf8",font=("Segoe UI",14,"bold"))
+        c.create_text(sw//2,58,text="ลากให้พอดีกรอบดำ  |  ESC ยกเลิก",fill="#94a3b8",font=("Segoe UI",10))
+        pos = c.create_text(sw//2,100,text="",fill="#38bdf8",font=("Consolas",12,"bold"))
         st = {"sx":0,"sy":0,"r":None}
-        c.bind("<Motion>",lambda e:c.itemconfig(pos,text=f"X:{e.x} Y:{e.y}"))
+        c.bind("<Motion>",lambda e:c.itemconfig(pos,text=f"X:{e.x}  Y:{e.y}"))
         def _p(e):
             st["sx"],st["sy"]=e.x,e.y
             if st["r"]: c.delete(st["r"])
-            st["r"]=c.create_rectangle(e.x,e.y,e.x,e.y,outline="#00ff88",width=3)
+            st["r"]=c.create_rectangle(e.x,e.y,e.x,e.y,outline="#38bdf8",width=3)
         def _d(e):
             c.coords(st["r"],st["sx"],st["sy"],e.x,e.y); c.delete("sz")
             c.create_text((st["sx"]+e.x)//2,min(st["sy"],e.y)-14,
-                text=f"{abs(e.x-st['sx'])}x{abs(e.y-st['sy'])}",fill="#00ff88",font=("Consolas",13,"bold"),tags="sz")
+                text=f"{abs(e.x-st['sx'])}x{abs(e.y-st['sy'])}",fill="#38bdf8",font=("Consolas",13,"bold"),tags="sz")
         def _r(e):
             global region
             x1,y1=min(st["sx"],e.x),min(st["sy"],e.y); x2,y2=max(st["sx"],e.x),max(st["sy"],e.y)
             if (x2-x1)>10 and (y2-y1)>10:
                 region={"left":x1,"top":y1,"width":x2-x1,"height":y2-y1}; save_cfg()
-                self.lbl_reg.config(text=f"{x2-x1}x{y2-y1}",fg="#10b981")
+                self.lbl_reg.config(text=f"{x2-x1}x{y2-y1}",fg=GREEN)
                 self.log(f"Region: {x2-x1}x{y2-y1} @ ({x1},{y1})")
             sel.destroy(); self.root.deiconify()
         c.bind("<ButtonPress-1>",_p); c.bind("<B1-Motion>",_d); c.bind("<ButtonRelease-1>",_r)
@@ -303,45 +347,45 @@ class App:
 
     def test_read(self):
         if not region: self.log("เลือก region ก่อน!"); return
+        t0 = time.time()
         frame = grab(region)
         if frame is None: self.log("จับจอไม่ได้!"); return
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        num = self.num_keys.get()
-        keys = read_all(gray, num)
-        # สร้าง debug image
-        self.debug_img = make_debug_image(frame, keys, num)
+        keys = read_all(gray, self.num_keys.get())
+        ms = int((time.time()-t0)*1000)
+        self.debug_img = make_debug(frame, keys, self.num_keys.get())
         self._show_debug()
         if keys:
-            self.log(f"อ่านได้: {' '.join(k.upper() for k in keys)}")
+            self.log(f"Read ({ms}ms): {' '.join(k.upper() for k in keys)}")
         else:
-            self.log("อ่านไม่ครบ! ลอง: ลากregionให้พอดีตัวอักษร")
+            self.log(f"อ่านไม่ครบ ({ms}ms) ลองลาก region ใหม่")
 
     def test_press(self):
-        self.log("กด D ใน 3 วิ (คลิกเกมก่อน!)")
+        self.log("กด D+S ใน 3 วิ (คลิกเกมก่อน!)")
         def _do():
             time.sleep(3)
-            ok = press_key('d')
-            self.root.after(0,self.log,f"Press D: {'OK' if ok else 'FAIL'}")
-            time.sleep(0.3)
-            ok2 = press_key('s')
-            self.root.after(0,self.log,f"Press S: {'OK' if ok2 else 'FAIL'}")
+            press_key('d'); time.sleep(0.2); press_key('s')
+            self.root.after(0,self.log,"Pressed D S!")
         threading.Thread(target=_do,daemon=True).start()
 
+    # ═══ Toggle ═══
     def toggle(self):
         if self.running: self.running = False
         else:
-            if not region: messagebox.showwarning("QTE","กด F6 เลือก Region!"); return
+            if not region: messagebox.showwarning("AutoFish","กด F6 เลือก Region!"); return
             self.running = True; save_cfg(num_keys=self.num_keys.get())
-            self.btn.config(text="  STOP  ",bg="#ef4444")
-            self.lbl_st.config(text="RUNNING",fg="#10b981")
+            self.btn.config(text="STOP  (F5)", bg=RED, activebackground="#dc2626")
+            self.lbl_st.config(text="ON", fg=GREEN)
             self.log("สลับไปเกมใน 3 วิ!")
-            threading.Thread(target=self._run,daemon=True).start()
+            threading.Thread(target=self._run, daemon=True).start()
 
+    # ═══ Main Loop ═══
     def _run(self):
         num = self.num_keys.get()
         kd = self.key_delay.get() / 1000
         self.session_keys = 0
         self.session_start = time.time()
+        self.fish_count = 0
 
         test = grab(region)
         if test is None:
@@ -349,25 +393,24 @@ class App:
             self.running = False; self.root.after(0,self._reset); return
 
         time.sleep(3)
-        self.root.after(0,self.log,"เริ่ม! สแกนไปเรื่อยๆ...")
+        self.root.after(0,self.log,"เริ่มสแกน...")
         last_seq = ""
 
         while self.running:
             try:
                 frame = grab(region)
-                if frame is None: time.sleep(0.1); continue
+                if frame is None: time.sleep(0.05); continue
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                # OCR ทั้งแถว
                 keys = read_all(gray, num)
-
-                # สร้าง debug image
-                self.debug_img = make_debug_image(frame, keys, num)
+                self.debug_img = make_debug(frame, keys, num)
 
                 if keys and len(keys) == num:
                     seq = "".join(keys)
                     if seq != last_seq:
-                        self.root.after(0,self.log,f"เจอ: {' '.join(k.upper() for k in keys)}")
+                        self.fish_count += 1
+                        display = " ".join(k.upper() for k in keys)
+                        self.root.after(0,self.log,f"#{self.fish_count} {display}")
 
                         for key in keys:
                             if not self.running: break
@@ -375,15 +418,13 @@ class App:
                             self.session_keys += 1
                             time.sleep(kd + random.uniform(0.01, 0.04))
 
-                        self.root.after(0,self.lbl_cnt.config,{"text":str(self.session_keys)})
-                        self.root.after(0,self.lbl_info.config,
-                            {"text":f"{self.session_keys/(time.time()-self.session_start):.1f}/s"})
+                        self.root.after(0, self._update_stats)
                         last_seq = seq
-                        time.sleep(1.0 + random.uniform(0.1, 0.3))
+                        time.sleep(0.8 + random.uniform(0.1, 0.3))
                     else:
-                        time.sleep(0.05)
+                        time.sleep(0.03)
                 else:
-                    time.sleep(0.1)
+                    time.sleep(0.05)
 
             except Exception as e:
                 self.root.after(0,self.log,f"Error: {e}")
@@ -391,26 +432,29 @@ class App:
 
         self.root.after(0,self._reset)
 
+    def _update_stats(self):
+        self.lbl_cnt.config(text=str(self.session_keys))
+        elapsed = max(time.time() - self.session_start, 0.1)
+        self.lbl_spd.config(text=f"{self.session_keys/elapsed:.1f}/s")
+        self.lbl_fish.config(text=f"Fish #{self.fish_count}")
+
     def _reset(self):
-        self.btn.config(text="  START (F5)  ",bg="#10b981")
-        self.lbl_st.config(text="OFF",fg="#5a6a7e")
+        self.btn.config(text="START  (F5)", bg=GREEN, activebackground="#16a34a")
+        self.lbl_st.config(text="OFF", fg=DIM)
         self.log("Stopped")
 
     def _show_debug(self):
-        """แสดง debug image ใน preview"""
-        if self.debug_img is not None:
-            try:
-                rgb = cv2.cvtColor(self.debug_img, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(rgb)
-                w,h = img.size
-                # ขยายให้เต็ม preview (กว้าง ~470px)
-                nw = 470
-                nh = max(int(h * nw / w), 20)
-                img = img.resize((nw, nh), Image.NEAREST)
-                photo = ImageTk.PhotoImage(img)
-                self.preview.config(image=photo, text="")
-                self.preview._photo = photo
-            except: pass
+        if self.debug_img is None: return
+        try:
+            rgb = cv2.cvtColor(self.debug_img, cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(rgb)
+            w,h = img.size
+            nw = 448; nh = max(int(h*nw/w), 20)
+            img = img.resize((nw, nh), Image.NEAREST)
+            photo = ImageTk.PhotoImage(img)
+            self.preview.config(image=photo, text="")
+            self.preview._photo = photo
+        except: pass
 
     def _preview_loop(self):
         if self.running and self.debug_img is not None:
@@ -419,18 +463,17 @@ class App:
             try:
                 frame = grab(region)
                 if frame is not None:
-                    num = self.num_keys.get()
-                    debug = make_debug_image(frame, None, num)
-                    rgb = cv2.cvtColor(debug, cv2.COLOR_BGR2RGB)
+                    d = make_debug(frame, None, self.num_keys.get())
+                    rgb = cv2.cvtColor(d, cv2.COLOR_BGR2RGB)
                     img = Image.fromarray(rgb)
                     w,h = img.size
-                    nw = 470; nh = max(int(h*nw/w), 20)
+                    nw = 448; nh = max(int(h*nw/w), 20)
                     img = img.resize((nw,nh), Image.NEAREST)
                     photo = ImageTk.PhotoImage(img)
                     self.preview.config(image=photo, text="")
                     self.preview._photo = photo
             except: pass
-        self.root.after(200, self._preview_loop)
+        self.root.after(150, self._preview_loop)
 
     def log(self,msg):
         self.log_box.config(state=tk.NORMAL)
