@@ -228,6 +228,12 @@ class CharEngine:
         edges = cv2.Canny(gray, 50, 150)
         results.append(cv2.dilate(edges, cv2.getStructuringElement(cv2.MORPH_RECT,(2,2)), iterations=1))
 
+        # FIX #5: Simple threshold หลายค่า (ดีกับ game UI ที่ชัดอยู่แล้ว)
+        for tval in [100, 150, 200]:
+            _, ts = cv2.threshold(gray, tval, 255, cv2.THRESH_BINARY)
+            tsi = cv2.bitwise_not(ts)
+            results.append(ts if np.count_nonzero(ts) < np.count_nonzero(tsi) else tsi)
+
         return results
 
 
@@ -238,33 +244,59 @@ class CharEngine:
 class LaneDetect:
     def __init__(self):
         self.original_slots = []   # ภาพ slot ตอนเริ่ม round (ก่อนกดอะไร)
+        self.completed_frame = None # ภาพตอนจบ round (เอาไว้เทียบว่า round ใหม่มาจริงหรือยัง)
         self.change_thresh = 25    # % ที่ต้องเปลี่ยน ถึงจะถือว่า "กดไปแล้ว"
         self.debug_info = []       # [(change%, status)] สำหรับ debug UI
         self.round_active = False
+        self.skipped_slots = set() # slot ที่ timeout แล้วข้ามไป
 
     def capture_round_start(self, frame_bgr, num_keys):
         """จับภาพ slot ทุกช่องตอนเริ่ม round ใหม่ (ยังไม่ได้กดอะไร)"""
         self.original_slots = self._split_slots(frame_bgr, num_keys)
         self.round_active = True
+        self.skipped_slots.clear()
+
+    def save_completed_frame(self, frame_bgr):
+        """เก็บภาพตอนจบ round ไว้เทียบ"""
+        self.completed_frame = cv2.resize(frame_bgr, (64, 64))
+
+    def is_screen_changed_from_completed(self, frame_bgr):
+        """เช็คว่าหน้าจอเปลี่ยนจากตอนจบ round หรือยัง (= round ใหม่มา)"""
+        if self.completed_frame is None:
+            return True
+        small = cv2.resize(frame_bgr, (64, 64))
+        diff = cv2.absdiff(self.completed_frame, small)
+        gray_diff = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+        change = (np.count_nonzero(gray_diff > 30) / gray_diff.size) * 100
+        return change > 20  # ต้องเปลี่ยน >20% ถึงถือว่า round ใหม่จริง
 
     def find_active_slot(self, frame_bgr, num_keys):
         """หา slot แรกที่ยังไม่เปลี่ยน (= ต้องกดตัวนี้)
         return: slot index (0-based) หรือ -1 ถ้าเปลี่ยนหมดแล้ว"""
         if not self.original_slots:
-            return 0  # ยังไม่มี original → ถือว่า slot 0 active
+            return 0
 
         current_slots = self._split_slots(frame_bgr, num_keys)
         self.debug_info = []
 
         for i in range(min(len(self.original_slots), len(current_slots))):
+            # ข้าม slot ที่ timeout แล้ว
+            if i in self.skipped_slots:
+                self.debug_info.append((99, "SKIP"))
+                continue
+
             change = self._calc_change(self.original_slots[i], current_slots[i])
             changed = change > self.change_thresh
             self.debug_info.append((change, "DONE" if changed else "ACTIVE"))
 
             if not changed:
-                return i  # ช่องนี้ยังไม่เปลี่ยน = active
+                return i
 
-        return -1  # ทุกช่องเปลี่ยนหมด = จบ round
+        return -1
+
+    def skip_slot(self, slot_idx):
+        """ทำเครื่องหมายว่าข้าม slot นี้ (timeout)"""
+        self.skipped_slots.add(slot_idx)
 
     def _split_slots(self, frame_bgr, num_keys):
         """แบ่ง frame เป็น N slots"""
@@ -305,8 +337,10 @@ class LaneDetect:
 
     def reset(self):
         self.original_slots = []
+        self.completed_frame = None
         self.debug_info = []
         self.round_active = False
+        self.skipped_slots.clear()
 
 
 # ═══════════════════════════════════════════════════
@@ -496,23 +530,43 @@ def reset_reference():
 
 @eel.expose
 def capture_game_key(key_char):
-    """จับ template จากเกมจริง (optional - ถ้า auto ไม่ match)"""
+    """จับ template จากเกมจริง - จับเฉพาะ slot active (ไม่ใช่ทั้ง lane)"""
     if not region:
         eel.onLog("Select region first!", "warn"); return
     frame = cap.grab(region)
     if frame is None:
         eel.onLog("Capture failed!", "err"); return
-    fname = f"{key_char}.png"
-    path = os.path.join(get_base_path(), "templates", fname)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    cv2.imwrite(path, frame)
-    # โหลดเข้า engine
+
+    # FIX #3: จับเฉพาะ slot ปัจจุบัน ไม่ใช่ทั้ง lane
+    num_keys = 6  # default
+    try: num_keys = int(load_cfg().get("num_keys", 6))
+    except: pass
+
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    # หา active slot
+    active = lane.find_active_slot(frame, num_keys)
+    if active < 0: active = 0
+
+    roi = lane.get_slot_roi(gray, active, num_keys)
+    if roi is None or roi.shape[1] < 5:
+        eel.onLog("Slot too small! Adjust region.", "err"); return
+
+    # Save slot image
+    tmpl_dir = os.path.join(get_base_path(), "templates")
+    os.makedirs(tmpl_dir, exist_ok=True)
+    existing = [f for f in os.listdir(tmpl_dir) if f.startswith(key_char) and f.endswith(".png")]
+    fname = f"{key_char}.png" if not existing else f"{key_char}_{len(existing)+1}.png"
+    path = os.path.join(tmpl_dir, fname)
+    cv2.imwrite(path, roi)
+
+    # โหลดเข้า engine (normalize height)
     engine.templates.setdefault(key_char, [])
-    h, w = gray.shape[:2]
+    h, w = roi.shape[:2]
     nw = max(int(w * (engine.target_h / h)), 3)
-    engine.templates[key_char].append(cv2.resize(gray, (nw, engine.target_h)))
-    eel.onLog(f"Captured game template: '{key_char.upper()}' → {fname}", "ok")
+    engine.templates[key_char].append(cv2.resize(roi, (nw, engine.target_h)))
+    engine.total += 1
+    eel.onLog(f"Captured '{key_char.upper()}' from slot {active+1} → {fname}", "ok")
 
 
 @eel.expose
@@ -538,14 +592,6 @@ def set_on_top(on):
 
 
 def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
-    """
-    Flow:
-    1. รอจน lane ปรากฏ (slot 0 = active)
-    2. จับภาพ "ตอนเริ่ม round" เก็บไว้เทียบ
-    3. อ่านตัวอักษร slot active → กด
-    4. รอจน slot นั้นเปลี่ยนสี (เทียบกับภาพเริ่มต้น)
-    5. ไป slot ถัดไป จนครบ → รอ round ใหม่
-    """
     global running, session_keys, session_start
     session_keys = 0
     session_start = time.time()
@@ -555,8 +601,9 @@ def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
     ld = lane_delay_ms / 1000.0
     last_slot = -1
     retry_count = 0
-    MAX_RETRY = 15       # ลองอ่านซ้ำ 15 ครั้ง ก่อน timeout
+    MAX_RETRY = 20
     waiting_new_round = True
+    debug_counter = 0  # ส่ง debug ทุก 5 frame ไม่ใช่ทุก frame (ลด lag)
 
     while running:
         try:
@@ -566,12 +613,14 @@ def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
 
             # ── Phase 1: รอ round ใหม่ ──
             if waiting_new_round:
-                # เช็คว่า lane ยังว่าง (ยังไม่มีตัวอักษร) หรือมีแล้ว
-                # จับภาพเริ่มต้น round
+                # FIX #2: เช็คว่าหน้าจอเปลี่ยนจากตอนจบ round ก่อน
+                if not lane.is_screen_changed_from_completed(frame):
+                    time.sleep(sd); continue
+
+                # หน้าจอเปลี่ยนแล้ว → ลองอ่าน slot 0 ดูว่ามีตัวอักษรหรือยัง
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 roi = lane.get_slot_roi(gray, 0, num_keys)
                 if roi is not None and roi.shape[1] >= 5:
-                    # ลองอ่าน slot 0 ดูว่ามีตัวอักษรหรือยัง
                     prepped = engine._multi_preprocess(roi)
                     found = False
                     for p in prepped:
@@ -582,12 +631,12 @@ def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
                             found = True; break
 
                     if found:
-                        # มีตัวอักษร! = round ใหม่เริ่มแล้ว
+                        # Round ใหม่!
                         lane.capture_round_start(frame, num_keys)
                         waiting_new_round = False
                         last_slot = -1
                         retry_count = 0
-                        eel.onLog("New round detected!", "lane")
+                        eel.onLog("New round!", "lane")
                         continue
 
                 time.sleep(sd)
@@ -596,13 +645,16 @@ def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
             # ── Phase 2: กด key ทีละตัว ──
             active = lane.find_active_slot(frame, num_keys)
 
-            # ส่ง debug info ไป UI
-            debug_text = lane.get_debug_text()
-            try: eel.onDebugUpdate(debug_text, active, num_keys)
-            except: pass
+            # FIX #4: ส่ง debug ทุก 5 frame (ไม่ทุก frame → ลด lag)
+            debug_counter += 1
+            if debug_counter >= 5:
+                debug_counter = 0
+                try: eel.onDebugUpdate(lane.get_debug_text(), active, num_keys)
+                except: pass
 
             if active == -1:
-                # ทุกช่องเปลี่ยนหมด = จบ round
+                # FIX #6: จบ round → เก็บภาพจบไว้เทียบ + รอนานพอ
+                lane.save_completed_frame(frame)
                 eel.onLog("Round complete!", "ok")
                 waiting_new_round = True
                 last_slot = -1
@@ -610,7 +662,6 @@ def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
                 continue
 
             if active != last_slot:
-                # Slot ใหม่ active → อ่านตัวอักษร
                 retry_count = 0
 
             # อ่านตัวอักษรจาก active slot
@@ -630,7 +681,6 @@ def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
                     best_char, best_conf = ch, cf
 
             if best_char:
-                # กดปุ่ม!
                 kb.press_and_release(best_char)
                 session_keys += 1
                 elapsed = time.time() - session_start
@@ -644,11 +694,11 @@ def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
                 retry_count = 0
                 time.sleep(kd)
             else:
-                # อ่านไม่ออก → retry
                 retry_count += 1
                 if retry_count >= MAX_RETRY:
-                    # Timeout! ข้ามไป
-                    eel.onLog(f"  Slot {active+1}: timeout (can't read) → skip", "warn")
+                    # FIX #1: Timeout → skip slot จริงๆ
+                    eel.onLog(f"  Slot {active+1}: can't read → skip", "warn")
+                    lane.skip_slot(active)  # ทำเครื่องหมาย skip
                     last_slot = active
                     retry_count = 0
                 time.sleep(sd)
@@ -660,18 +710,26 @@ def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
     eel.onStatusChange(False)
 
 
-# Preview thread - fast, separate from timer
+# FIX #4: Preview ใช้ ImageGrab แทน mss ซ้ำ (ไม่ชน thread)
 def preview_loop():
-    """Preview จอ realtime ทุก 300ms ใช้ JPEG เล็ก ไม่ค้าง"""
-    prev_cap = Cap()  # ใช้ capture แยก ไม่ชนกับ macro thread
+    """Preview จอ realtime ทุก 400ms ใช้ PIL ImageGrab (thread-safe)"""
     while True:
         try:
             if region:
-                b64 = prev_cap.grab_b64(region)
-                if b64:
+                r = region
+                img = ImageGrab.grab(bbox=(r["left"], r["top"],
+                    r["left"]+r["width"], r["top"]+r["height"]))
+                if img:
+                    w, h = img.size
+                    if w > 480:
+                        ratio = 480 / w
+                        img = img.resize((480, max(int(h*ratio),1)), Image.NEAREST)
+                    buf = io.BytesIO()
+                    img.save(buf, format="JPEG", quality=50)
+                    b64 = base64.b64encode(buf.getvalue()).decode()
                     eel.onPreview(b64)
         except: pass
-        time.sleep(0.3)
+        time.sleep(0.4)
 
 # Timer thread
 def timer_loop():
