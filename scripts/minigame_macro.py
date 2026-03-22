@@ -33,37 +33,53 @@ for p in [r"C:\Program Files\Tesseract-OCR\tesseract.exe",
 SCAN = {'q':0x10,'w':0x11,'e':0x12,'r':0x13,'a':0x1E,'s':0x1F,'d':0x20,'f':0x21,
         'z':0x2C,'x':0x2D,'c':0x2E,'v':0x2F,'space':0x39}
 
+VK = {'q':0x51,'w':0x57,'e':0x45,'r':0x52,'a':0x41,'s':0x53,'d':0x44,'f':0x46,
+      'z':0x5A,'x':0x58,'c':0x43,'v':0x56,'space':0x20}
+
 def press_key(key):
+    """กดปุ่ม - ลอง 3 วิธี: keybd_event → SendInput → keyboard"""
     key = key.lower()
+    vk = VK.get(key)
     sc = SCAN.get(key)
-    if sc is None: return False
+
     if sys.platform == 'win32':
-        try:
-            PUL = ctypes.POINTER(ctypes.c_ulong)
-            class KI(ctypes.Structure):
-                _fields_=[("wVk",ctypes.c_ushort),("wScan",ctypes.c_ushort),
-                          ("dwFlags",ctypes.c_ulong),("time",ctypes.c_ulong),("dwExtraInfo",PUL)]
-            class HI(ctypes.Structure):
-                _fields_=[("uMsg",ctypes.c_ulong),("wParamL",ctypes.c_short),("wParamH",ctypes.c_ushort)]
-            class MI(ctypes.Structure):
-                _fields_=[("dx",ctypes.c_long),("dy",ctypes.c_long),("mouseData",ctypes.c_ulong),
-                          ("dwFlags",ctypes.c_ulong),("time",ctypes.c_ulong),("dwExtraInfo",PUL)]
-            class IU(ctypes.Union):
-                _fields_=[("ki",KI),("mi",MI),("hi",HI)]
-            class INP(ctypes.Structure):
-                _fields_=[("type",ctypes.c_ulong),("ii",IU)]
-            ex = ctypes.c_ulong(0)
-            ii = IU(); ii.ki = KI(0, sc, 0x0008, 0, ctypes.pointer(ex))
-            x = INP(ctypes.c_ulong(1), ii)
-            ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
-            time.sleep(0.03)
-            ii2 = IU(); ii2.ki = KI(0, sc, 0x0008|0x0002, 0, ctypes.pointer(ex))
-            x2 = INP(ctypes.c_ulong(1), ii2)
-            ctypes.windll.user32.SendInput(1, ctypes.pointer(x2), ctypes.sizeof(x2))
-            return True
-        except: pass
-    try: import pyautogui; pyautogui.PAUSE=0; pyautogui.press(key); return True
-    except: pass
+        # วิธี 1: keybd_event (ใช้ได้กับ FiveM / DirectX)
+        if vk:
+            try:
+                ctypes.windll.user32.keybd_event(vk, sc or 0, 0, 0)       # key down
+                time.sleep(0.05)
+                ctypes.windll.user32.keybd_event(vk, sc or 0, 0x0002, 0)  # key up
+                return True
+            except: pass
+
+        # วิธี 2: SendInput scan code
+        if sc:
+            try:
+                PUL = ctypes.POINTER(ctypes.c_ulong)
+                class KI(ctypes.Structure):
+                    _fields_=[("wVk",ctypes.c_ushort),("wScan",ctypes.c_ushort),
+                              ("dwFlags",ctypes.c_ulong),("time",ctypes.c_ulong),("dwExtraInfo",PUL)]
+                class HI(ctypes.Structure):
+                    _fields_=[("uMsg",ctypes.c_ulong),("wParamL",ctypes.c_short),("wParamH",ctypes.c_ushort)]
+                class MI(ctypes.Structure):
+                    _fields_=[("dx",ctypes.c_long),("dy",ctypes.c_long),("mouseData",ctypes.c_ulong),
+                              ("dwFlags",ctypes.c_ulong),("time",ctypes.c_ulong),("dwExtraInfo",PUL)]
+                class IU(ctypes.Union):
+                    _fields_=[("ki",KI),("mi",MI),("hi",HI)]
+                class INP(ctypes.Structure):
+                    _fields_=[("type",ctypes.c_ulong),("ii",IU)]
+                ex = ctypes.c_ulong(0)
+                ii = IU(); ii.ki = KI(0, sc, 0x0008, 0, ctypes.pointer(ex))
+                x = INP(ctypes.c_ulong(1), ii)
+                ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+                time.sleep(0.05)
+                ii2 = IU(); ii2.ki = KI(0, sc, 0x0008|0x0002, 0, ctypes.pointer(ex))
+                x2 = INP(ctypes.c_ulong(1), ii2)
+                ctypes.windll.user32.SendInput(1, ctypes.pointer(x2), ctypes.sizeof(x2))
+                return True
+            except: pass
+
+    # วิธี 3: keyboard library
     try: kb.press_and_release(key); return True
     except: pass
     return False
