@@ -41,12 +41,21 @@
       <span id="prPH" class="text-[10px] text-slate-700">กด F6 เลือก region ก่อน</span>
       <img id="prImg" class="hidden w-full h-full object-contain" src="">
     </div>
+    <!-- Debug slot bar -->
+    <div id="dbg" class="flex gap-1 px-3 py-1.5"></div>
+    <!-- Stats -->
     <div class="px-4 py-3 flex items-center gap-4">
       <div><div id="cnt" class="font-mono text-3xl font-black text-emerald-400">0</div>
         <div class="text-[8px] text-slate-600 font-bold tracking-widest">KEYS</div></div>
       <div class="w-px h-8 bg-white/5"></div>
       <div class="flex-1"><div id="spd" class="font-mono text-xs text-slate-500">—</div></div>
     </div>
+    <!-- Learned keys -->
+    <div id="lbar" class="px-4 pb-2 hidden">
+      <div class="text-[8px] text-slate-600 font-bold tracking-wider mb-1">LEARNED</div>
+      <div id="lkeys" class="flex gap-1 flex-wrap"></div>
+    </div>
+    <!-- History -->
     <div id="hist" class="px-4 pb-3 flex flex-wrap gap-1 min-h-[20px]"></div>
   </div>
 
@@ -127,8 +136,30 @@ function onStatus(r){
   $('timer').className='font-mono text-xs '+(r?'text-emerald-400':'text-slate-600');
 }
 
+eel.expose(onDebug);
+function onDebug(active,n){
+  let h='';
+  for(let i=0;i<n;i++){
+    let bg,border,txt,label;
+    if(active>=0&&i<active){bg='bg-emerald-500/15';border='border-emerald-500/30';txt='text-emerald-400';label='✓'}
+    else if(i===active){bg='bg-cyan-500/15 animate-pulse';border='border-cyan-400/40';txt='text-cyan-300';label='●'}
+    else{bg='bg-white/5';border='border-white/10';txt='text-slate-600';label=i+1}
+    h+=`<div class="flex-1 h-5 rounded ${bg} border ${border} flex items-center justify-center"><span class="text-[8px] font-bold ${txt}">${label}</span></div>`;
+  }
+  if(!$('dbg'))return;
+  $('dbg').innerHTML=h;
+}
+
+eel.expose(onLearned);
+function onLearned(keys){
+  if(!$('lkeys'))return;
+  $('lkeys').innerHTML=keys.map(k=>`<span class="pop inline-flex items-center justify-center w-6 h-6 rounded-md bg-violet-500/15 border border-violet-500/25 text-violet-300 font-mono text-[10px] font-bold">${k.toUpperCase()}</span>`).join('');
+  $('lbar').classList.remove('hidden');
+}
+
 async function go(){await eel.toggle(+$('sN').value,+$('sS').value,+$('sK').value,+$('sL').value)()}
 async function doTest(){await eel.test(+$('sN').value)()}
+async function clearL(){await eel.clear_learned()()}
 function U(e,id,u=''){$(id).textContent=e.value+u}
 
 document.addEventListener('keydown',e=>{
