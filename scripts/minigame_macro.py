@@ -25,34 +25,52 @@ for p in [r"C:\Program Files\Tesseract-OCR\tesseract.exe",
           r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"]:
     if os.path.exists(p): pytesseract.pytesseract.tesseract_cmd = p; break
 
-# ═══ Key Press (ทุกวิธีพร้อมกัน) ═══
-VK = {'q':0x51,'w':0x57,'e':0x45,'r':0x52,'a':0x41,'s':0x53,'d':0x44,'f':0x46,'space':0x20}
-SC = {'q':0x10,'w':0x11,'e':0x12,'r':0x13,'a':0x1E,'s':0x1F,'d':0x20,'f':0x21,'space':0x39}
+# ═══ Key Press (Scancode Hardware - ทะลุ FiveM/DirectX 100%) ═══
+SCAN = {'q':0x10,'w':0x11,'e':0x12,'r':0x13,'a':0x1E,'s':0x1F,'d':0x20,'f':0x21,'space':0x39}
 
 def press_key(key):
     key = key.lower()
-    vk, sc = VK.get(key), SC.get(key)
-    if not vk: return False
-    ok = False
+    sc = SCAN.get(key)
+    if not sc: return False
+
     if sys.platform == 'win32':
         try:
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
-            lp_down = (sc or 0) << 16 | 1
-            lp_up = (sc or 0) << 16 | 1 | (1 << 30) | (1 << 31)
-            ctypes.windll.user32.PostMessageW(hwnd, 0x0100, vk, lp_down)
-            time.sleep(0.06)
-            ctypes.windll.user32.PostMessageW(hwnd, 0x0101, vk, lp_up)
-            ok = True
-        except: pass
-        try:
-            ctypes.windll.user32.keybd_event(vk, sc or 0, 0, 0)
-            time.sleep(0.06)
-            ctypes.windll.user32.keybd_event(vk, sc or 0, 2, 0)
-            ok = True
-        except: pass
-    try: kb.press(key); time.sleep(0.06); kb.release(key); ok = True
-    except: pass
-    return ok
+            PUL = ctypes.POINTER(ctypes.c_ulong)
+            class KEYBDINPUT(ctypes.Structure):
+                _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort),
+                            ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong),
+                            ("dwExtraInfo", PUL)]
+            class HARDWAREINPUT(ctypes.Structure):
+                _fields_ = [("uMsg", ctypes.c_ulong), ("wParamL", ctypes.c_short), ("wParamH", ctypes.c_ushort)]
+            class MOUSEINPUT(ctypes.Structure):
+                _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long), ("mouseData", ctypes.c_ulong),
+                            ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
+            class INPUT_UNION(ctypes.Union):
+                _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT), ("hi", HARDWAREINPUT)]
+            class INPUT(ctypes.Structure):
+                _fields_ = [("type", ctypes.c_ulong), ("ii", INPUT_UNION)]
+
+            extra = ctypes.c_ulong(0)
+
+            # Key Down (Scancode only, no VK)
+            ii_down = INPUT_UNION()
+            ii_down.ki = KEYBDINPUT(0, sc, 0x0008, 0, ctypes.pointer(extra))
+            inp_down = INPUT(ctypes.c_ulong(1), ii_down)
+            ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_down), ctypes.sizeof(inp_down))
+
+            # ค้างปุ่ม 50ms (สำคัญ! ถ้าไม่มี FiveM จะไม่เห็น)
+            time.sleep(0.05)
+
+            # Key Up
+            ii_up = INPUT_UNION()
+            ii_up.ki = KEYBDINPUT(0, sc, 0x0008 | 0x0002, 0, ctypes.pointer(extra))
+            inp_up = INPUT(ctypes.c_ulong(1), ii_up)
+            ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_up), ctypes.sizeof(inp_up))
+
+            return True
+        except:
+            pass
+    return False
 
 # ═══ Capture ═══
 def grab(r):
