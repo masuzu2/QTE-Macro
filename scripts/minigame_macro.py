@@ -330,25 +330,31 @@ class App:
                     seq = "".join(valid)
                     if seq != last_seq:
                         self.root.after(0,self.log,f"อ่านได้: {' '.join(k.upper() for k in valid)}")
+                        self.root.after(0,self.log,f"กำลังกด {num} ปุ่ม...")
 
-                        for key in valid:
+                        for idx, key in enumerate(valid):
                             if not self.running: break
-                            press_key(key)
+                            ok = press_key(key)
                             self.session_keys += 1
+                            self.root.after(0,self.log,
+                                f"  กด {key.upper()} {'OK' if ok else 'FAIL!'}")
                             time.sleep(kd + random.uniform(0.01, 0.05))
 
                         self.root.after(0,self.lbl_count.config,{"text":str(self.session_keys)})
+                        self.root.after(0,self.log,"กดครบ!")
                         last_seq = seq
 
-                        # รอดึงปลา
-                        self.root.after(0,self.log,"รอดึงปลา...")
-                        time.sleep(5.0 + random.uniform(0.2, 0.8))
+                        # รอดึงปลา (~15 วิ)
+                        self.root.after(0,self.log,"รอดึงปลา 15 วิ...")
+                        time.sleep(15.0 + random.uniform(0.5, 2.0))
 
                         # โยนเบ็ดใหม่
                         if self.running:
                             self.root.after(0,self.log,"โยนเบ็ดใหม่")
                             press_key('e')  # *** แก้ปุ่มตามเซิร์ฟ ***
-                            time.sleep(2.0 + random.uniform(0.3, 0.7))
+                            # รอมินิเกมขึ้น (~15 วิ)
+                            self.root.after(0,self.log,"รอมินิเกม 15 วิ...")
+                            time.sleep(15.0 + random.uniform(0.5, 2.0))
                             last_seq = ""
                     else:
                         time.sleep(0.05)
