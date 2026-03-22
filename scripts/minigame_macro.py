@@ -574,7 +574,9 @@ class App:
                                 f"  Slot {learn_slot+1}: ? → กดปุ่มตามเกม!")
 
                         if self.user_pressed:
-                            roi_save = learning_rois.get(learn_slot) or rois.get(learn_slot)
+                            roi_save = learning_rois.get(learn_slot)
+                            if roi_save is None:
+                                roi_save = rois.get(learn_slot)
                             if roi_save is not None:
                                 save_template(self.user_pressed, roi_save)
                                 self.root.after(0, self.log,
