@@ -330,13 +330,30 @@ def bg():
 # Start
 # ═══════════════════════════════════
 if __name__ == "__main__":
-    eel.init(os.path.join(get_base_path(), "web"))
+    # หา web folder ให้ถูกต้อง ไม่ว่าจะรันจาก directory ไหน
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    web_dir = os.path.join(script_dir, "web")
+
+    if not os.path.exists(web_dir):
+        print(f"ERROR: web folder not found at {web_dir}")
+        sys.exit(1)
+    if not os.path.exists(os.path.join(web_dir, "index.html")):
+        print(f"ERROR: index.html not found in {web_dir}")
+        sys.exit(1)
+
+    print(f"Web dir: {web_dir}")
+    eel.init(web_dir)
+
     n = sum(len(v) for v in keys.keys.values())
     print(f"Templates: {n} | Capture: {'OK' if cap.ok else 'FAIL'}")
     threading.Thread(target=bg, daemon=True).start()
-    try: eel.start("index.html", size=(480,700), port=0, mode="chrome-app" if os.name=="nt" else "chrome")
-    except:
-        try: eel.start("index.html", size=(480,700), port=0, mode="edge")
-        except:
-            try: eel.start("index.html", size=(480,700), port=0, mode="default")
-            except: print("Need Chrome/Edge!")
+
+    for mode in ["chrome-app", "chrome", "edge", "default"]:
+        try:
+            eel.start("index.html", size=(480, 700), port=0, mode=mode)
+            break
+        except Exception as e:
+            print(f"Mode '{mode}' failed: {e}")
+            continue
+    else:
+        print("Cannot open browser! Install Chrome or Edge.")
