@@ -473,19 +473,18 @@ class App:
                 self.log("macro จะจำตัวอักษรจากเกมเอง")
             threading.Thread(target=self._run, daemon=True).start()
 
-    # ═══ Main Loop ═══
+    # ═══ Main Loop (AFK Fishing) ═══
     def _run(self):
         """
-        Logic ใหม่ (ตรงกับเกมตกปลา):
-        1. สแกน 5 ช่อง อ่านตัวอักษรทั้งหมด
-        2. ถ้าอ่านได้ครบ + เป็น sequence ใหม่ → กดรวดเดียว 5 ตัว
-        3. ถ้าอ่านไม่ได้ (ไม่มี template) → รอ user กดเอง + จำ
-        4. รอ sequence ถัดไป
+        AFK 100% Loop:
+        1. รอมินิเกมขึ้น (สแกน 5 ช่องพร้อมกัน)
+        2. เจอครบ → กดรวดเดียว 5 ตัว
+        3. รอตัวละครดึงปลา (~5 วิ)
+        4. กดโยนเบ็ดใหม่
+        5. กลับข้อ 1
         """
         num = self.num_keys.get()
         kd = self.key_delay.get() / 1000
-        ld = self.lane_delay.get() / 1000
-        sd = 0.03
         self.session_keys = 0
         self.session_start = time.time()
         self.user_pressed = None
@@ -498,112 +497,98 @@ class App:
             self.running = False
             self.root.after(0, self._reset_ui); return
 
-        h, w = test.shape[:2]; sw = w // num
-        self.root.after(0, self.log, f"OK! {num} slots, {sw}px each")
+        self.root.after(0, self.log, "AFK Mode: รอ 3 วิ แล้วเริ่ม (สลับไปเกม!)")
+        time.sleep(3)
+        self.root.after(0, self.log, "เริ่มทำงาน...")
 
-        last_seq = ""        # sequence ล่าสุดที่กดไป (ป้องกันกดซ้ำ)
         round_num = 0
-        learning_slot = 0    # slot ที่กำลัง learn (สำหรับ learning mode)
-        learning_rois = {}   # slot -> prep'd roi (สำหรับ learning)
+        learning_rois = {}
 
         while self.running:
             try:
                 frame = grab(region)
-                if frame is None: time.sleep(0.05); continue
+                if frame is None:
+                    time.sleep(0.1); continue
+
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                # ═══ อ่านทุก slot พร้อมกัน ═══
-                keys_found = []
+                # ═══ 1. สแกนทุกช่องพร้อมกัน ═══
+                found_keys = []
+                confidences = []
                 rois = {}
-                all_readable = True
 
                 for i in range(num):
-                    roi = prep(get_slot(gray, i, num))
+                    slot_img = get_slot(gray, i, num)
+                    roi = prep(slot_img)
                     rois[i] = roi
+
                     if roi is not None and templates:
                         ch, cf = match_tmpl(roi)
-                        if ch and cf > 0.55:
-                            keys_found.append(ch)
+                        if ch and cf > 0.60:
+                            found_keys.append(ch)
+                            confidences.append(cf)
                         else:
-                            keys_found.append(None)
-                            all_readable = False
+                            found_keys.append(None)
                     else:
-                        keys_found.append(None)
-                        all_readable = False
+                        found_keys.append(None)
 
-                # ═══ AUTO MODE: อ่านได้ครบ → กดรวดเดียว! ═══
-                if all_readable and len(keys_found) == num:
-                    seq = "".join(keys_found)
+                valid_keys = [k for k in found_keys if k is not None]
 
-                    if seq != last_seq:
-                        # Sequence ใหม่ → กด!
-                        round_num += 1
-                        self.root.after(0, self.log, f"Round {round_num}: {' '.join(k.upper() for k in keys_found)}")
+                # ═══ 2. เจอครบ → กดรวดเดียว! ═══
+                if len(valid_keys) == num:
+                    round_num += 1
+                    seq_str = " ".join(k.upper() for k in valid_keys)
+                    self.root.after(0, self.log, f"Round {round_num}: {seq_str}")
 
-                        for k in keys_found:
-                            if not self.running: break
-                            press_key(k)
-                            self.session_keys += 1
-                            self.root.after(0, self._update_count, k, 1.0)
-                            time.sleep(kd + random.uniform(0.01, 0.05))
+                    for key in valid_keys:
+                        if not self.running: break
+                        press_key(key)
+                        self.session_keys += 1
+                        time.sleep(kd + random.uniform(0.01, 0.05))
 
-                        last_seq = seq
-                        self.root.after(0, self.log, f"  กดครบ {num} ตัว!")
-                        time.sleep(ld + random.uniform(0.05, 0.2))
+                    avg_cf = sum(confidences) / len(confidences) if confidences else 0
+                    self.root.after(0, self._update_count, valid_keys[-1], avg_cf)
+                    self.root.after(0, self.log, "กดครบ! รอดึงปลา...")
 
-                        # รอจน sequence เปลี่ยน (round ใหม่)
-                        wait_start = time.time()
-                        while self.running and (time.time() - wait_start) < 15:
-                            time.sleep(0.1)
-                            nf = grab(region)
-                            if nf is None: continue
-                            ng = cv2.cvtColor(nf, cv2.COLOR_BGR2GRAY)
-                            # ลองอ่าน slot 0 ใหม่
-                            nr = prep(get_slot(ng, 0, num))
-                            if nr is not None:
-                                nch, ncf = match_tmpl(nr)
-                                if nch and ncf > 0.55:
-                                    new_seq_start = nch
-                                    # ถ้า slot 0 เปลี่ยนตัว → round ใหม่
-                                    if new_seq_start != keys_found[0]:
-                                        break
-                        continue
+                    # ═══ 3. รอตัวละครดึงปลา ═══
+                    time.sleep(5.0 + random.uniform(0.2, 0.8))
 
-                    else:
-                        # Sequence เดิม → รอ
-                        time.sleep(sd)
-                        continue
+                    # ═══ 4. โยนเบ็ดใหม่ ═══
+                    self.root.after(0, self.log, "โยนเบ็ดใหม่...")
+                    press_key('e')  # *** แก้เป็นปุ่มโยนเบ็ดของเซิร์ฟคุณ ***
+                    time.sleep(2.0 + random.uniform(0.3, 0.7))
+                    continue
 
-                # ═══ LEARN MODE: อ่านไม่ครบ → ให้ user กดเอง ═══
-                # หา slot แรกที่อ่านไม่ได้
-                learn_slot = -1
-                for i in range(num):
-                    if keys_found[i] is None and rois.get(i) is not None:
-                        learn_slot = i; break
+                # ═══ LEARN MODE: เจอไม่ครบ → ให้ user กดเอง ═══
+                if not templates:
+                    # ยังไม่มี template เลย → หา slot ที่มี content
+                    learn_slot = -1
+                    for i in range(num):
+                        if rois.get(i) is not None:
+                            learn_slot = i; break
 
-                if learn_slot >= 0:
-                    # เก็บ ROI ไว้
-                    if learn_slot not in learning_rois:
-                        learning_rois[learn_slot] = rois[learn_slot]
-                        self.root.after(0, self.log,
-                            f"  Slot {learn_slot+1}: ? → กดปุ่มตามเกม!")
-
-                    # User กดปุ่ม → จำ
-                    if self.user_pressed:
-                        roi_to_save = learning_rois.get(learn_slot) or rois.get(learn_slot)
-                        if roi_to_save is not None:
-                            save_template(self.user_pressed, roi_to_save)
+                    if learn_slot >= 0:
+                        if learn_slot not in learning_rois:
+                            learning_rois[learn_slot] = rois[learn_slot]
                             self.root.after(0, self.log,
-                                f"  จำ: {self.user_pressed.upper()} ✓")
-                            self.root.after(0, self._update_template_label)
-                            learning_rois.pop(learn_slot, None)
-                        self.user_pressed = None
+                                f"  Slot {learn_slot+1}: ? → กดปุ่มตามเกม!")
 
-                time.sleep(sd)
+                        if self.user_pressed:
+                            roi_save = learning_rois.get(learn_slot) or rois.get(learn_slot)
+                            if roi_save is not None:
+                                save_template(self.user_pressed, roi_save)
+                                self.root.after(0, self.log,
+                                    f"  จำ: {self.user_pressed.upper()} ✓ ({sum(len(v) for v in templates.values())} total)")
+                                self.root.after(0, self._update_template_label)
+                                learning_rois.pop(learn_slot, None)
+                            self.user_pressed = None
+
+                # มินิเกมยังไม่มา → รอ
+                time.sleep(0.1)
 
             except Exception as e:
                 self.root.after(0, self.log, f"Error: {e}")
-                time.sleep(0.2)
+                time.sleep(0.5)
 
         self.root.after(0, self._reset_ui)
 
