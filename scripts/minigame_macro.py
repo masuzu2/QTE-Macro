@@ -3,7 +3,7 @@ QTE Macro - Final Working Version
 tkinter UI + Windows SendInput API + Auto Learn
 """
 
-import time, sys, os, json, threading, ctypes
+import time, sys, os, json, threading, ctypes, random
 import tkinter as tk
 from tkinter import messagebox
 
@@ -467,9 +467,10 @@ class App:
             lk = sorted(templates.keys())
             if lk:
                 self.log(f"AUTO mode! ({' '.join(k.upper() for k in lk)})")
+                self.log("ถ้ากดผิด → กด Clear Templates แล้ว Start ใหม่")
             else:
-                self.log("LEARN mode: กดปุ่มตามเกม → macro จะจำ")
-                self.log("(คลิกที่เกมก่อน แล้วเล่นปกติ)")
+                self.log("LEARN mode: คลิกที่เกมก่อน แล้วกดปุ่มตามเกมปกติ")
+                self.log("macro จะจำตัวอักษรจากเกมเอง")
             threading.Thread(target=self._run, daemon=True).start()
 
     # ═══ Main Loop ═══
@@ -503,6 +504,7 @@ class App:
 
         round_num = 0
         last_active = -1
+        saved_roi = None  # เก็บภาพ slot ล่าสุดก่อน user กด (สำหรับ learning)
 
         while self.running:
             try:
@@ -524,9 +526,10 @@ class App:
                     round_num += 1
                     self.root.after(0, self.log, f"Round {round_num} done!")
                     self.root.after(0, self._update_template_label)
+                    saved_roi = None
                     time.sleep(ld)
 
-                    # รอ round ใหม่ (หน้าจอเปลี่ยน)
+                    # รอ round ใหม่
                     old = cv2.resize(frame, (64,64))
                     for _ in range(100):
                         if not self.running: break
@@ -547,37 +550,46 @@ class App:
                     last_active = -1
                     continue
 
-                # ═══ มี active slot ═══
-                roi = prep(get_slot(gray, active, num))
-                ch, cf = match_tmpl(roi)
+                # ═══ จับภาพ active slot ไว้ก่อน (สำหรับ learning) ═══
+                current_roi = prep(get_slot(gray, active, num))
+                if current_roi is not None:
+                    saved_roi = current_roi  # เก็บภาพชัดๆ ก่อนสีเปลี่ยน
 
-                if ch and cf > 0.50:
-                    # รู้จัก → กด!
-                    press_key(ch)
-                    self.session_keys += 1
-                    spd = self.session_keys / max(time.time()-self.session_start, 0.1)
-                    self.root.after(0, self._update_count, ch, cf)
+                # ═══ มี template → ลอง match ═══
+                if templates:
+                    ch, cf = match_tmpl(current_roi)
+                    if ch and cf > 0.60:
+                        # มั่นใจ → กด!
+                        press_key(ch)
+                        self.session_keys += 1
+                        self.root.after(0, self._update_count, ch, cf)
+                        self.root.after(0, self.log, f"  [{self.session_keys}] {ch.upper()} ({cf:.0%})")
+                        last_active = active
+                        saved_roi = None
+                        self.user_pressed = None
+                        time.sleep(kd + random.uniform(0.01, 0.05))
+                        continue
+
+                # ═══ ไม่รู้จัก / ยังไม่มี template → รอ user กดเอง ═══
+                if active != last_active:
+                    self.root.after(0, self.log, f"  Slot {active+1}: ? → กดเอง!")
                     last_active = active
                     self.user_pressed = None
+
+                # User กด → จำจากภาพที่เก็บไว้ก่อนหน้า (ไม่ใช่ตอนนี้ที่อาจเปลี่ยนสีแล้ว)
+                if self.user_pressed and saved_roi is not None:
+                    save_template(self.user_pressed, saved_roi)
+                    self.root.after(0, self.log,
+                        f"  จำ: {self.user_pressed.upper()} ✓ (total {sum(len(v) for v in templates.values())})")
+                    self.root.after(0, self._update_template_label)
+                    self.session_keys += 1
+                    self.root.after(0, self._update_count, self.user_pressed, 1.0)
+                    last_active = active
+                    saved_roi = None
+                    self.user_pressed = None
                     time.sleep(kd)
-
                 else:
-                    # ไม่รู้จัก → รอ user กด
-                    if active != last_active:
-                        self.root.after(0, self.log, f"Slot {active+1}: ไม่รู้จัก → กดเอง!")
-                        last_active = active
-                        self.user_pressed = None
-
-                    if self.user_pressed and roi is not None:
-                        save_template(self.user_pressed, roi)
-                        self.root.after(0, self.log, f"จำได้: {self.user_pressed.upper()} ✓")
-                        self.session_keys += 1
-                        self.root.after(0, self._update_count, self.user_pressed, 1.0)
-                        last_active = active
-                        self.user_pressed = None
-                        time.sleep(kd)
-                    else:
-                        time.sleep(sd)
+                    time.sleep(sd)
 
             except Exception as e:
                 self.root.after(0, self.log, f"Error: {e}")
