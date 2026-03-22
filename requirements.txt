@@ -4,4 +4,6 @@ opencv-python
 numpy
 Pillow
 eel
+pyautogui
+pydirectinput
 pyinstaller

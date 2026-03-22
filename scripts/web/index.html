@@ -65,6 +65,7 @@
     <div class="glass rounded-xl px-3 py-2 flex items-center gap-2">
       <button onclick="eel.select_region()" class="px-3 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-xs font-bold hover:bg-cyan-500/15 active:scale-95 transition-all">Select (F6)</button>
       <button onclick="doTest()" class="px-2.5 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-300 text-xs font-bold hover:bg-orange-500/15 active:scale-95 transition-all">Test</button>
+      <button onclick="testPress()" class="px-2.5 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-300 text-xs font-bold hover:bg-violet-500/15 active:scale-95 transition-all">Test Key</button>
       <div class="flex-1"></div>
       <span id="rinfo" class="font-mono text-[10px] text-amber-400/70">not set</span>
     </div>
@@ -158,7 +159,11 @@ function onLearned(keys){
 }
 
 async function go(){await eel.toggle(+$('sN').value,+$('sS').value,+$('sK').value,+$('sL').value)()}
-async function doTest(){await eel.test(+$('sN').value)()}
+async function doTest(){await eel.test_btn(+$('sN').value)()}
+async function testPress(){
+  const k=prompt('พิมพ์ตัวที่จะทดสอบกด (q/w/e/a/s/d):');
+  if(k&&k.length===1) await eel.test_press(k.toLowerCase())();
+}
 async function clearL(){await eel.clear_learned()()}
 function U(e,id,u=''){$(id).textContent=e.value+u}
 
