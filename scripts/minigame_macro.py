@@ -224,16 +224,66 @@ class CharEngine:
 
 
 # ═══════════════════════════════════════════════════
-# Lane Detector
+# Color-Aware Lane Detector
+# ตรวจจับว่าช่องไหน "เป็นสีชมพู" (กดไปแล้ว) หรือ "ยังไม่กด"
 # ═══════════════════════════════════════════════════
 class LaneDetect:
     def __init__(self):
         self.last_hash = None
-    def is_new(self, results):
-        h = "".join(k or "?" for k,_ in results)
-        return h != self.last_hash and "?" not in h
-    def record(self, results):
-        self.last_hash = "".join(k or "?" for k,_ in results)
+        # ค่าสีชมพู/magenta ใน HSV (OpenCV uses H:0-180, S:0-255, V:0-255)
+        self.pink_h_low = 140     # H min (pink/magenta ~280-340° → /2 = 140-170)
+        self.pink_h_high = 175    # H max
+        self.pink_s_min = 40      # Saturation ขั้นต่ำ
+        self.pink_ratio_thresh = 0.15  # ถ้า >15% ของ slot เป็นสีชมพู = กดแล้ว
+
+    def find_active_slot(self, frame_bgr, num_keys):
+        """หา slot แรกที่ยังไม่เป็นสีชมพู (= ตัวที่ต้องกดตอนนี้)
+        return: slot index (0-based) หรือ -1 ถ้ากดครบหมดแล้ว"""
+        h, w = frame_bgr.shape[:2]
+        slot_w = w // num_keys
+        hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+
+        for i in range(num_keys):
+            x1 = i * slot_w
+            x2 = min(x1 + slot_w, w)
+            slot_hsv = hsv[:, x1:x2]
+
+            if not self._is_pink(slot_hsv):
+                return i  # ช่องนี้ยังไม่ชมพู = active
+
+        return -1  # ทุกช่องชมพูหมด = กดครบแล้ว
+
+    def _is_pink(self, slot_hsv):
+        """เช็คว่า slot นี้เป็นสีชมพูหรือไม่"""
+        h_ch = slot_hsv[:, :, 0]
+        s_ch = slot_hsv[:, :, 1]
+
+        # นับ pixel ที่เป็นสีชมพู
+        pink_mask = (
+            (h_ch >= self.pink_h_low) & (h_ch <= self.pink_h_high) &
+            (s_ch >= self.pink_s_min)
+        )
+        ratio = np.count_nonzero(pink_mask) / max(pink_mask.size, 1)
+        return ratio > self.pink_ratio_thresh
+
+    def get_slot_roi(self, gray, slot_idx, num_keys):
+        """ตัด ROI ของ slot ที่ต้องการ"""
+        h, w = gray.shape[:2]
+        slot_w = w // num_keys
+        x1 = slot_idx * slot_w
+        x2 = min(x1 + slot_w, w)
+        pad = max(slot_w // 10, 2)
+        return gray[:, max(0, x1-pad):min(w, x2+pad)]
+
+    def is_new_round(self, frame_bgr, num_keys):
+        """เช็คว่าเป็น round ใหม่ (ไม่มีช่องชมพูเลย = ตัวอักษรใหม่มา)"""
+        active = self.find_active_slot(frame_bgr, num_keys)
+        return active == 0  # ช่องแรกยังไม่ชมพู = น่าจะเป็น round ใหม่
+
+    def is_done(self, frame_bgr, num_keys):
+        """เช็คว่ากดครบหมดแล้ว (ทุกช่องชมพู)"""
+        return self.find_active_slot(frame_bgr, num_keys) == -1
+
     def reset(self):
         self.last_hash = None
 
@@ -357,14 +407,37 @@ def test_capture(num_keys):
     if frame is None:
         eel.onLog("Capture FAILED!", "err"); return
 
-    # Preview
     b64 = cap.grab_b64(region)
     if b64: eel.onPreview(b64)
 
+    # เช็คสีทุก slot
+    active = lane.find_active_slot(frame, num_keys)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    results = engine.match_lane(gray, num_keys)
-    seq = " ".join(f"{k.upper()}({c:.0%})" if k else "??" for k,c in results)
-    eel.onLog(f"Test: {seq}", "key")
+
+    status_parts = []
+    for i in range(num_keys):
+        roi = lane.get_slot_roi(gray, i, num_keys)
+        if roi is None or roi.shape[1] < 5:
+            status_parts.append("??"); continue
+
+        # ลอง match
+        prepped = engine._multi_preprocess(roi)
+        ch, cf = None, 0
+        for p in prepped:
+            cr = engine._tight_crop(p)
+            if cr is None: continue
+            c2, f2 = engine._match_one(cr, 0.40)
+            if c2 and f2 > cf: ch, cf = c2, f2
+
+        is_pink = (i < active) if active >= 0 else True
+        marker = "PINK" if is_pink else ">>>"
+        if ch:
+            status_parts.append(f"{ch.upper()}({cf:.0%}){marker}")
+        else:
+            status_parts.append(f"??{marker}")
+
+    eel.onLog(f"Test: {' | '.join(status_parts)}", "key")
+    eel.onLog(f"Active slot: {active+1 if active>=0 else 'ALL DONE'}", "ok")
 
 
 @eel.expose
@@ -390,44 +463,82 @@ def set_on_top(on):
 
 
 def macro_loop(num_keys, scan_ms, key_delay_ms, lane_delay_ms):
+    """
+    Flow ใหม่ (color-aware):
+    1. จับหน้าจอ → หา slot แรกที่ยังไม่ชมพู
+    2. อ่านตัวอักษรจาก slot นั้น → กด
+    3. รอจน slot นั้นเปลี่ยนเป็นสีชมพู (ยืนยันว่ากดสำเร็จ)
+    4. ไป slot ถัดไป
+    5. ถ้าทุก slot ชมพู = จบ round → รอ round ใหม่
+    """
     global running, session_keys, session_start
     session_keys = 0
     session_start = time.time()
     lane.reset()
+    sd = scan_ms / 1000.0
     kd = key_delay_ms / 1000.0
     ld = lane_delay_ms / 1000.0
+    last_slot = -1
 
     while running:
         try:
             frame = cap.grab(region)
-            if frame is None: time.sleep(0.05); continue
+            if frame is None:
+                time.sleep(0.03); continue
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            results = engine.match_lane(gray, num_keys)
+            # หา slot ที่ยังไม่ชมพู (= ต้องกดตัวนี้)
+            active = lane.find_active_slot(frame, num_keys)
 
-            if not all(k for k,_ in results):
-                time.sleep(scan_ms / 1000.0); continue
+            if active == -1:
+                # ทุกช่องชมพู = กดครบแล้ว → รอ round ใหม่
+                if last_slot != -1:
+                    eel.onLog("Round done!", "ok")
+                    last_slot = -1
+                time.sleep(ld)
+                continue
 
-            if not lane.is_new(results):
-                time.sleep(scan_ms / 1000.0); continue
+            # ถ้า slot เปลี่ยน (ย้ายไปตัวถัดไป หรือ round ใหม่)
+            if active != last_slot:
+                # อ่านตัวอักษรจาก slot นี้
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                roi = lane.get_slot_roi(gray, active, num_keys)
 
-            # New lane!
-            lane.record(results)
-            seq = " ".join(k.upper() for k,_ in results)
-            eel.onLaneDetected(seq)
-            eel.onLog(f"Lane: {seq}", "lane")
+                if roi is None or roi.shape[1] < 5:
+                    time.sleep(sd); continue
 
-            for key, conf in results:
-                if not running: break
-                if key:
-                    kb.press_and_release(key)
+                # ลองหลาย preprocessing
+                prepped = engine._multi_preprocess(roi)
+                best_char, best_conf = None, 0
+
+                for p in prepped:
+                    cr = engine._tight_crop(p)
+                    if cr is None: continue
+                    ch, cf = engine._match_one(cr, 0.45)
+                    if ch and cf > best_conf:
+                        best_char, best_conf = ch, cf
+
+                if best_char:
+                    # กดปุ่ม!
+                    kb.press_and_release(best_char)
                     session_keys += 1
                     elapsed = time.time() - session_start
                     speed = session_keys / elapsed if elapsed > 0 else 0
-                    eel.onKeyPressed(key, session_keys, speed)
-                    time.sleep(kd)
 
-            time.sleep(ld)
+                    eel.onKeyPressed(best_char, session_keys, speed)
+                    eel.onLaneDetected(f"slot {active+1}/{num_keys}: {best_char.upper()}")
+
+                    if active == 0 and last_slot == -1:
+                        eel.onLog(f"New round!", "lane")
+                    eel.onLog(f"  [{session_keys}] {best_char.upper()} (slot {active+1}, {best_conf:.0%})", "key")
+
+                    last_slot = active
+                    time.sleep(kd)  # รอนิดนึงก่อนสแกนต่อ
+                else:
+                    # อ่านไม่ออก → รอแล้วลองใหม่
+                    time.sleep(sd)
+            else:
+                # slot เดิม ยังไม่เปลี่ยนสี → รอ
+                time.sleep(sd)
 
         except Exception as e:
             eel.onLog(str(e), "err")
