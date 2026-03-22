@@ -475,6 +475,13 @@ class App:
 
     # ═══ Main Loop ═══
     def _run(self):
+        """
+        Logic ใหม่ (ตรงกับเกมตกปลา):
+        1. สแกน 5 ช่อง อ่านตัวอักษรทั้งหมด
+        2. ถ้าอ่านได้ครบ + เป็น sequence ใหม่ → กดรวดเดียว 5 ตัว
+        3. ถ้าอ่านไม่ได้ (ไม่มี template) → รอ user กดเอง + จำ
+        4. รอ sequence ถัดไป
+        """
         num = self.num_keys.get()
         kd = self.key_delay.get() / 1000
         ld = self.lane_delay.get() / 1000
@@ -483,28 +490,21 @@ class App:
         self.session_start = time.time()
         self.user_pressed = None
 
-        # จับ reference frame (ลองหลายครั้ง)
-        time.sleep(0.5)
-        ref = None
-        for attempt in range(30):
-            if not self.running: break
-            ref = grab(region)
-            if ref is not None: break
-            time.sleep(0.2)
-        if ref is None:
+        # ทดสอบจับหน้าจอ
+        test = grab(region)
+        if test is None:
             self.root.after(0, self.log, f"จับหน้าจอไม่ได้! [{grab_error}]")
-            self.root.after(0, self.log, f"Region: left={region['left']} top={region['top']} w={region['width']} h={region['height']}")
-            self.root.after(0, self.log, "แก้: เปลี่ยนเกมเป็น Borderless Windowed")
+            self.root.after(0, self.log, "แก้: รัน Admin + เกม Borderless Windowed")
             self.running = False
             self.root.after(0, self._reset_ui); return
 
-        h,w = ref.shape[:2]; sw = w // num
-        ref_slots = [cv2.resize(ref[:, i*sw:min((i+1)*sw,w)], (32,32)) for i in range(num)]
-        self.root.after(0, self.log, f"Ready! {num} slots ({sw}px each)")
+        h, w = test.shape[:2]; sw = w // num
+        self.root.after(0, self.log, f"OK! {num} slots, {sw}px each")
 
+        last_seq = ""        # sequence ล่าสุดที่กดไป (ป้องกันกดซ้ำ)
         round_num = 0
-        last_active = -1
-        saved_roi = None  # เก็บภาพ slot ล่าสุดก่อน user กด (สำหรับ learning)
+        learning_slot = 0    # slot ที่กำลัง learn (สำหรับ learning mode)
+        learning_rois = {}   # slot -> prep'd roi (สำหรับ learning)
 
         while self.running:
             try:
@@ -512,84 +512,94 @@ class App:
                 if frame is None: time.sleep(0.05); continue
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                # Slots ปัจจุบัน
-                curr_slots = [cv2.resize(frame[:, i*sw:min((i+1)*sw,w)], (32,32)) for i in range(num)]
+                # ═══ อ่านทุก slot พร้อมกัน ═══
+                keys_found = []
+                rois = {}
+                all_readable = True
 
-                # หา active slot (ยังไม่เปลี่ยนจาก ref)
-                active = -1
                 for i in range(num):
-                    if not slot_changed(ref_slots[i], curr_slots[i]):
-                        active = i; break
+                    roi = prep(get_slot(gray, i, num))
+                    rois[i] = roi
+                    if roi is not None and templates:
+                        ch, cf = match_tmpl(roi)
+                        if ch and cf > 0.55:
+                            keys_found.append(ch)
+                        else:
+                            keys_found.append(None)
+                            all_readable = False
+                    else:
+                        keys_found.append(None)
+                        all_readable = False
 
-                # ═══ ทุก slot เปลี่ยน = จบ round ═══
-                if active == -1:
-                    round_num += 1
-                    self.root.after(0, self.log, f"Round {round_num} done!")
-                    self.root.after(0, self._update_template_label)
-                    saved_roi = None
-                    time.sleep(ld)
+                # ═══ AUTO MODE: อ่านได้ครบ → กดรวดเดียว! ═══
+                if all_readable and len(keys_found) == num:
+                    seq = "".join(keys_found)
 
-                    # รอ round ใหม่
-                    old = cv2.resize(frame, (64,64))
-                    for _ in range(100):
-                        if not self.running: break
-                        time.sleep(0.1)
-                        nf = grab(region)
-                        if nf is None: continue
-                        ns = cv2.resize(nf, (64,64))
-                        diff = cv2.absdiff(old, ns)
-                        chg = (np.count_nonzero(cv2.cvtColor(diff,cv2.COLOR_BGR2GRAY)>30)/diff[:,:,0].size)*100
-                        if chg > 15:
-                            time.sleep(0.3)
-                            new_ref = grab(region)
-                            if new_ref is not None:
-                                h2,w2 = new_ref.shape[:2]; sw = w2//num
-                                ref_slots = [cv2.resize(new_ref[:,i*sw:min((i+1)*sw,w2)],(32,32)) for i in range(num)]
-                                self.root.after(0, self.log, "Round ใหม่!")
-                            break
-                    last_active = -1
-                    continue
+                    if seq != last_seq:
+                        # Sequence ใหม่ → กด!
+                        round_num += 1
+                        self.root.after(0, self.log, f"Round {round_num}: {' '.join(k.upper() for k in keys_found)}")
 
-                # ═══ จับภาพ active slot ไว้ก่อน (สำหรับ learning) ═══
-                current_roi = prep(get_slot(gray, active, num))
-                if current_roi is not None:
-                    saved_roi = current_roi  # เก็บภาพชัดๆ ก่อนสีเปลี่ยน
+                        for k in keys_found:
+                            if not self.running: break
+                            press_key(k)
+                            self.session_keys += 1
+                            self.root.after(0, self._update_count, k, 1.0)
+                            time.sleep(kd + random.uniform(0.01, 0.05))
 
-                # ═══ มี template → ลอง match ═══
-                if templates:
-                    ch, cf = match_tmpl(current_roi)
-                    if ch and cf > 0.60:
-                        # มั่นใจ → กด!
-                        press_key(ch)
-                        self.session_keys += 1
-                        self.root.after(0, self._update_count, ch, cf)
-                        self.root.after(0, self.log, f"  [{self.session_keys}] {ch.upper()} ({cf:.0%})")
-                        last_active = active
-                        saved_roi = None
-                        self.user_pressed = None
-                        time.sleep(kd + random.uniform(0.01, 0.05))
+                        last_seq = seq
+                        self.root.after(0, self.log, f"  กดครบ {num} ตัว!")
+                        time.sleep(ld + random.uniform(0.05, 0.2))
+
+                        # รอจน sequence เปลี่ยน (round ใหม่)
+                        wait_start = time.time()
+                        while self.running and (time.time() - wait_start) < 15:
+                            time.sleep(0.1)
+                            nf = grab(region)
+                            if nf is None: continue
+                            ng = cv2.cvtColor(nf, cv2.COLOR_BGR2GRAY)
+                            # ลองอ่าน slot 0 ใหม่
+                            nr = prep(get_slot(ng, 0, num))
+                            if nr is not None:
+                                nch, ncf = match_tmpl(nr)
+                                if nch and ncf > 0.55:
+                                    new_seq_start = nch
+                                    # ถ้า slot 0 เปลี่ยนตัว → round ใหม่
+                                    if new_seq_start != keys_found[0]:
+                                        break
                         continue
 
-                # ═══ ไม่รู้จัก / ยังไม่มี template → รอ user กดเอง ═══
-                if active != last_active:
-                    self.root.after(0, self.log, f"  Slot {active+1}: ? → กดเอง!")
-                    last_active = active
-                    self.user_pressed = None
+                    else:
+                        # Sequence เดิม → รอ
+                        time.sleep(sd)
+                        continue
 
-                # User กด → จำจากภาพที่เก็บไว้ก่อนหน้า (ไม่ใช่ตอนนี้ที่อาจเปลี่ยนสีแล้ว)
-                if self.user_pressed and saved_roi is not None:
-                    save_template(self.user_pressed, saved_roi)
-                    self.root.after(0, self.log,
-                        f"  จำ: {self.user_pressed.upper()} ✓ (total {sum(len(v) for v in templates.values())})")
-                    self.root.after(0, self._update_template_label)
-                    self.session_keys += 1
-                    self.root.after(0, self._update_count, self.user_pressed, 1.0)
-                    last_active = active
-                    saved_roi = None
-                    self.user_pressed = None
-                    time.sleep(kd)
-                else:
-                    time.sleep(sd)
+                # ═══ LEARN MODE: อ่านไม่ครบ → ให้ user กดเอง ═══
+                # หา slot แรกที่อ่านไม่ได้
+                learn_slot = -1
+                for i in range(num):
+                    if keys_found[i] is None and rois.get(i) is not None:
+                        learn_slot = i; break
+
+                if learn_slot >= 0:
+                    # เก็บ ROI ไว้
+                    if learn_slot not in learning_rois:
+                        learning_rois[learn_slot] = rois[learn_slot]
+                        self.root.after(0, self.log,
+                            f"  Slot {learn_slot+1}: ? → กดปุ่มตามเกม!")
+
+                    # User กดปุ่ม → จำ
+                    if self.user_pressed:
+                        roi_to_save = learning_rois.get(learn_slot) or rois.get(learn_slot)
+                        if roi_to_save is not None:
+                            save_template(self.user_pressed, roi_to_save)
+                            self.root.after(0, self.log,
+                                f"  จำ: {self.user_pressed.upper()} ✓")
+                            self.root.after(0, self._update_template_label)
+                            learning_rois.pop(learn_slot, None)
+                        self.user_pressed = None
+
+                time.sleep(sd)
 
             except Exception as e:
                 self.root.after(0, self.log, f"Error: {e}")
