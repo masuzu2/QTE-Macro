@@ -75,20 +75,46 @@ def press_key(key):
 
 
 # ═══════════════════════════════════
-# Screen Capture
+# Screen Capture - ลองทุกวิธี + log error
 # ═══════════════════════════════════
-cap_sct = None
-try: cap_sct = mss.mss()
-except: pass
+grab_error = ""
 
 def grab(r):
+    """จับหน้าจอ ลอง 3 วิธี"""
+    global grab_error
+    left, top = int(r["left"]), int(r["top"])
+    w, h = int(r["width"]), int(r["height"])
+
+    # 1. mss (สร้างใหม่ทุกครั้ง ป้องกัน stale handle)
     try:
-        if cap_sct:
-            return cv2.cvtColor(np.array(cap_sct.grab(r)), cv2.COLOR_BGRA2BGR)
-        return cv2.cvtColor(np.array(ImageGrab.grab(
-            bbox=(r["left"],r["top"],r["left"]+r["width"],r["top"]+r["height"]))), cv2.COLOR_RGB2BGR)
-    except:
-        return None
+        with mss.mss() as s:
+            shot = s.grab({"left":left, "top":top, "width":w, "height":h})
+            arr = np.array(shot)
+            if arr.size > 0 and arr.shape[0] > 0 and arr.shape[1] > 0:
+                return cv2.cvtColor(arr, cv2.COLOR_BGRA2BGR)
+    except Exception as e:
+        grab_error = f"mss:{e}"
+
+    # 2. PIL ImageGrab
+    try:
+        img = ImageGrab.grab(bbox=(left, top, left+w, top+h))
+        if img:
+            arr = np.array(img)
+            if arr.size > 0:
+                return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+    except Exception as e:
+        grab_error = f"PIL:{e}"
+
+    # 3. pyautogui
+    try:
+        import pyautogui
+        img = pyautogui.screenshot(region=(left, top, w, h))
+        if img:
+            return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    except Exception as e:
+        grab_error = f"pyautogui:{e}"
+
+    return None
 
 
 # ═══════════════════════════════════
@@ -456,11 +482,18 @@ class App:
         self.session_start = time.time()
         self.user_pressed = None
 
-        # จับ reference frame
+        # จับ reference frame (ลองหลายครั้ง)
         time.sleep(0.5)
-        ref = grab(region)
+        ref = None
+        for attempt in range(30):
+            if not self.running: break
+            ref = grab(region)
+            if ref is not None: break
+            time.sleep(0.2)
         if ref is None:
-            self.root.after(0, self.log, "จับหน้าจอไม่ได้!")
+            self.root.after(0, self.log, f"จับหน้าจอไม่ได้! [{grab_error}]")
+            self.root.after(0, self.log, f"Region: left={region['left']} top={region['top']} w={region['width']} h={region['height']}")
+            self.root.after(0, self.log, "แก้: เปลี่ยนเกมเป็น Borderless Windowed")
             self.running = False
             self.root.after(0, self._reset_ui); return
 
