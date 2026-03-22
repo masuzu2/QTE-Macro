@@ -339,53 +339,30 @@ class App:
         global region
         if self.running: self.log("Stop first!"); return
         self.root.iconify()
-        time.sleep(0.4)
-
-        # จับ screenshot ด้วย mss (เข้าเกมได้ดีกว่า ImageGrab)
-        photo = None
-        try:
-            if cap_sct:
-                mon = cap_sct.monitors[0]
-                shot = cap_sct.grab(mon)
-                ss = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-                photo = ImageTk.PhotoImage(ss)
-        except: pass
-
-        # Fallback: ImageGrab
-        if photo is None:
-            try:
-                ss = ImageGrab.grab()
-                photo = ImageTk.PhotoImage(ss)
-            except: pass
+        time.sleep(0.3)
 
         sel = tk.Toplevel(self.root)
         sel.overrideredirect(True)
         sel.attributes("-topmost", True)
+        sel.attributes("-alpha", 0.25)  # โปร่งใส 75% → เห็นเกมทะลุ
         sw, sh = sel.winfo_screenwidth(), sel.winfo_screenheight()
         sel.geometry(f"{sw}x{sh}+0+0")
+        sel.configure(bg="black")
 
-        if photo:
-            # มี screenshot → แสดงเป็นพื้นหลัง + overlay บางๆ
-            c = tk.Canvas(sel, highlightthickness=0, cursor="cross")
-            c.pack(fill=tk.BOTH, expand=True)
-            c.create_image(0, 0, anchor="nw", image=photo)
-            # overlay บางมาก ให้เห็นเกมชัด
-            c.create_rectangle(0, 0, sw, sh, fill="black", stipple="gray12")
-        else:
-            # ไม่มี screenshot → ใช้ transparent overlay แทน
-            sel.attributes("-alpha", 0.15)
-            sel.configure(bg="black")
-            c = tk.Canvas(sel, bg="black", highlightthickness=0, cursor="cross")
-            c.pack(fill=tk.BOTH, expand=True)
+        c = tk.Canvas(sel, bg="black", highlightthickness=0, cursor="cross")
+        c.pack(fill=tk.BOTH, expand=True)
 
-        # กรอบคำแนะนำ (สีเข้มให้อ่านชัด)
-        c.create_rectangle(sw//2-200, 10, sw//2+200, 65, fill="#000000", outline="#00ffaa", width=1)
-        c.create_text(sw//2, 28, text="ลากครอบแถวตัวอักษร (ไม่รวม counter)",
-            fill="#00ffaa", font=("Segoe UI", 13, "bold"))
-        c.create_text(sw//2, 50, text="ESC = ยกเลิก", fill="#cccccc", font=("Segoe UI", 10))
+        # กรอบคำแนะนำ
+        c.create_rectangle(sw//2-200, 15, sw//2+200, 90, fill="black", outline="#00ff88", width=2)
+        c.create_text(sw//2, 35, text="ลากครอบแถวตัวอักษร",
+            fill="#00ff88", font=("Segoe UI", 16, "bold"))
+        c.create_text(sw//2, 58, text="ไม่รวม counter ด้านขวา",
+            fill="#00ff88", font=("Segoe UI", 11))
+        c.create_text(sw//2, 78, text="ESC = ยกเลิก",
+            fill="#aaaaaa", font=("Segoe UI", 10))
 
-        # แสดงพิกัดเมาส์
-        pos_txt = c.create_text(sw//2, 80, text="", fill="#00ffaa", font=("Consolas", 11))
+        # พิกัดเมาส์
+        pos_txt = c.create_text(sw//2, 108, text="", fill="#00ff88", font=("Consolas", 12, "bold"))
 
         st = {"sx":0, "sy":0, "r":None}
 
@@ -395,14 +372,15 @@ class App:
         def _p(e):
             st["sx"],st["sy"] = e.x, e.y
             if st["r"]: c.delete(st["r"])
-            st["r"] = c.create_rectangle(e.x, e.y, e.x, e.y, outline="#00ffaa", width=2)
+            st["r"] = c.create_rectangle(e.x, e.y, e.x, e.y,
+                outline="#00ff88", width=3)
 
         def _d(e):
             c.coords(st["r"], st["sx"], st["sy"], e.x, e.y)
             c.delete("sz")
             w, h = abs(e.x-st["sx"]), abs(e.y-st["sy"])
-            c.create_text((st["sx"]+e.x)//2, min(st["sy"],e.y)-14,
-                text=f"{w} x {h}", fill="#00ffaa", font=("Consolas", 12, "bold"), tags="sz")
+            c.create_text((st["sx"]+e.x)//2, min(st["sy"],e.y)-16,
+                text=f"{w} x {h}", fill="#00ff88", font=("Consolas", 14, "bold"), tags="sz")
 
         def _r(e):
             global region
